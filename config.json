@@ -1,0 +1,19 @@
+{
+	"request1": {
+		"proto": "http",
+		"host": "www.dianping.com",
+		"port": "80",
+		"path": "/shop",
+		"rate_limit": "10/s",
+		"headers": {
+			"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36"
+		},
+		"method": "GET",
+		"param": null,
+		"data": null
+	},
+	"weak_topo": [
+	],
+	"strong_topo": [
+	]
+}
