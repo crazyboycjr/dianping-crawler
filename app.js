@@ -196,6 +196,8 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 async function work(vis, shop_id) {
 	let shop_config = {};
 
+	console.log(shop_id);
+
 	/* request 1 */
 	/* 模仿浏览器请求 */
 	let option = {
@@ -221,7 +223,6 @@ async function work(vis, shop_id) {
 	//console.log(shop_id);
 
 	vis.add(shop_id);
-	//fs.appendFileSync(logFile, 'writing ' + shop_id + '\n');
 
 	let st = text.indexOf('window.shop_config=') + 19;
 	let en = text.substring(st, text.length).indexOf('</script>') + st;
@@ -295,11 +296,16 @@ async function work(vis, shop_id) {
 	await save_review(shop_id, option, 'default_reviews', 'review_all', handle_default_review, shop_config);
 
 	//console.log(shop_config);
-	//console.log(JSON.stringify(shop_config));
 	/* request 4 review_short */
 	await save_review(shop_id, option, 'checkin_reviews', 'review_short', handle_checkin_review, shop_config);
 
-	console.log(JSON.stringify(shop_config));
+	//console.log(JSON.stringify(shop_config));
+	/* alike atom write */
+	{
+		fs.appendFileSync(logFile, 'writing ' + shop_id + '\n');
+		fs.appendFileSync(dataFile, JSON.stringify(shop_config) + '\n');
+		fs.appendFileSync(logFile, 'done ' + shop_id + '\n');
+	}
 }
 
 (async function() {
