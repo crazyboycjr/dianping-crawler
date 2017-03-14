@@ -41,7 +41,9 @@ function initLog(logFile) {
 			input: fs.createReadStream(logFile)
 		});
 		rd.on('line', (line) => {
-			vis.add(line);
+			if (line.startsWith('done '))
+				vis.add(line.substring(5, line.length));
+			/* 如果某id只有writing开头，需要在dataFile中找到对应的记录，将其删去，讲道理，这部分操作用数据库更简单一点 */
 		});
 		rd.on('close', () => {
 			resolve(vis);
