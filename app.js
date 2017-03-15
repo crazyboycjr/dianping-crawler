@@ -4,6 +4,7 @@ const http = require('http');
 const fs = require('fs');
 const querystring = require('querystring');
 const readline = require('readline');
+const util = require('util');
 
 const data_file = 'dianping_data.txt';
 const log_file = 'dianping_log.txt';
@@ -233,7 +234,7 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 				max_no = Number(page_no[1]);
 		}
 	}
-	console.log(shop_id, 'page max_no = ', max_no);
+	LOG(shop_id, 'page max_no = ', max_no);
 	
 	for (let i = 1; i <= max_no; i++) {
 		let params = querystring.stringify({
@@ -257,11 +258,11 @@ async function work(vis, shop_id) {
 	return new Promise(async (resolve, reject) => {
 		let shop_config = {};
 
-		console.log(shop_id);
+		LOG(shop_id);
 
 		/* request 1 */
 		/* 模仿浏览器请求 */
-		console.log(shop_id, 'sending request 1...');
+		LOG(shop_id, 'sending request 1...');
 		let option = {
 			host: 'www.dianping.com',
 			path: '/shop',
@@ -311,11 +312,11 @@ async function work(vis, shop_id) {
 			shop_power: tmp_conf['shopPower']
 		});
 
-		console.log(shop_id, 'request 1 finished.');
+		LOG(shop_id, 'request 1 finished.');
 		//console.log(shop_config);
 
 		/* request 2 */
-		console.log(shop_id, 'sending request 2...');
+		LOG(shop_id, 'sending request 2...');
 		option.path = '/ajax/json/shopDynamic/reviewAndStar';
 		let params = querystring.stringify({
 			shopId: shop_id,
@@ -341,11 +342,11 @@ async function work(vis, shop_id) {
 			avg_price: tmp_conf['avgPrice'],
 			default_review_count: tmp_conf['defaultReviewCount'],
 			total_review_count: tmp_conf['totalReviewCount'],
-			rating: {
+			rating: tmp_conf['shopRefinedScoreValueList'] ? {
 				'口味': tmp_conf['shopRefinedScoreValueList'][0],
 				'环境': tmp_conf['shopRefinedScoreValueList'][1],
 				'服务': tmp_conf['shopRefinedScoreValueList'][2]
-			},
+			} : null,
 
 			all_reviews: {
 				default_numbers: tmp_conf['defaultReviewCount'],
@@ -359,23 +360,23 @@ async function work(vis, shop_id) {
 			}
 		});
 		//console.log(shop_config);
-		console.log(shop_id, 'request 2 finished.');
+		LOG(shop_id, 'request 2 finished.');
 
 		/* request 3 */
 		/* 默认点评 review_all */
-		console.log(shop_id, 'sending request 3');
+		LOG(shop_id, 'sending request 3');
 
 		await save_review(shop_id, option, 'default_reviews', 'review_all', handle_default_review, shop_config);
 
-		console.log(shop_id, 'request 3 finished.');
+		LOG(shop_id, 'request 3 finished.');
 
 		//console.log(shop_config);
 		/* request 4 review_short */
-		console.log(shop_id, 'sending request 4');
+		LOG(shop_id, 'sending request 4');
 
 		await save_review(shop_id, option, 'checkin_reviews', 'review_short', handle_checkin_review, shop_config);
 
-		console.log(shop_id, 'request 4 finished.');
+		LOG(shop_id, 'request 4 finished.');
 		//console.log(JSON.stringify(shop_config));
 		/* alike atom write */
 		if (!vis.has(shop_id)) {
@@ -390,7 +391,9 @@ async function work(vis, shop_id) {
 
 let timer = (timeout) => {
 	return new Promise((resolve, reject) => {
-		setTimeout(resolve, timeout);
+		setTimeout(() => {
+			resolve('timeout');
+		}, timeout);
 	});
 }
 
@@ -401,7 +404,7 @@ function go(vis, buf, buf_lim) {
 		if (!vis.has(line))
 			promises.push(work(vis, line));
 	}
-	console.log(promises);
+	LOG(promises);
 	return Promise.race([timer(promises.length * 60000), Promise.all(promises)]);
 }
 
@@ -415,9 +418,10 @@ function go(vis, buf, buf_lim) {
 		input: fs.createReadStream('dianping_id_shuf.txt')
 	});
 
-	let buf = [];
+	let buf = [], lines = [];
 	let buf_lim = 20;
 
+	/*
 	rd.on('line', (line) => {
 		if (buf.length >= buf_lim) {
 			rd.pause();
@@ -434,7 +438,28 @@ function go(vis, buf, buf_lim) {
 	rd.on('close', async () => {
 		await go(vis, buf, buf_lim);
 	});
+	*/
+	/* This makes me feel very sick */
+	rd.on('line', (line) => {
+		if (!vis.has(line))
+			lines.push(line);
+	});
+	
+	rd.on('close', async () => {
+		let line;
+		while (line = lines.shift()) {
+			buf.push(line);
+			if (buf.length >= buf_lim) {
+				let ret = await go(vis, buf, buf_lim);
+				if (ret === 'timeout')
+					LOG('timeout happened.');
+			}
+		}
+		let ret = await go(vis, buf, buf_lim);
+		if (ret === 'timeout')
+			LOG('timeout happened.');
+	});
 })();
 
-process.on('uncaughtException', (err) => console.log(`Caught exception: ${err}`));
-process.on('unhandledRejection', (reason, p) => console.log('Unhandled Rejection at: Promise ', p, 'reason: ', reason));
+process.on('uncaughtException', (err) => LOG(`Caught exception: ${err}`));
+process.on('unhandledRejection', (reason, p) => LOG('Unhandled Rejection at: Promise ', p, 'reason: ', reason));
