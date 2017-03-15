@@ -5,20 +5,70 @@ const fs = require('fs');
 const querystring = require('querystring');
 const readline = require('readline');
 
-const dataFile = 'data.txt';
-const logFile = 'log.txt';
+const data_file = 'dianping_data.txt';
+const log_file = 'dianping_log.txt';
+const LOG_FILE = 'prog_log.txt'
 
-function getParams(id) {
-	return querystring.stringify({
-		'digitalId': id,
-		'DigitalId': id
+const prog_log = fs.createWriteStream(LOG_FILE, { flags: 'a' });
+
+const start_time = Date.now();
+async function rate_limiter(count, interval, fn) {
+	return new Promise((resolve, reject) => {
+		setTimeout(() => {
+			let res = fn();
+			resolve(res);
+		}, interval * 1.0 / count);
 	});
 }
 
-function queryOptions(id) {
-	options.path = '/4.0/profile' + '?' + getParams(id);
-	return options;
+function LOG() {
+	let args = Array.prototype.slice.call(arguments);
+	let output = '[' + (new Date).toUTCString() + ']: '
+			+ args.map(x => typeof x === 'string' ? x : util.inspect(x)).join(' ');
+	console.log(output);
+	prog_log.write(output + '\n');
 }
+
+/*
+function rate_limiter(limit_count, limit_interval, fn) {
+	let queue = [];
+	let count = limit_count;
+	
+	async function call_next(args) {
+		setTimeout(() => {
+			if (queue.length > 0) {
+				return await call_next();
+			} else {
+				count++;
+			}
+		}, limit_interval);
+		let call_args = queue.shift();
+		if (!call_args && args) {
+			return fn.apply(args[0], args[1]);
+		}
+		return fn.apply(call_args[0], call_args[1]);
+	}
+	
+	return new Promise((resolve, reject) => () {
+		let ctx = this;
+		let args = Array.prototype.slice.call(arguments);
+		queue.push([ctx, args]);
+		if (count <= 0) {
+			queue.push([ctx, args]);
+			return;
+		}
+		count--;
+		return await call_next(args);
+	});
+}
+
+let send_request = rate_limit(1, 1000, (option) => {
+	return new Promise((resolve, reject) => {
+		resolve(http.get(option));
+	});
+	//return http.get(option);
+});
+*/
 
 function readContent(request) {
 	return new Promise((resolve, reject) => {
@@ -34,16 +84,16 @@ function readContent(request) {
 	});
 }
 
-function initLog(logFile) {
+function initLog(log_file) {
 	return new Promise((resolve, reject) => {
 		let vis = new Set();
 		let rd = readline.createInterface({
-			input: fs.createReadStream(logFile)
+			input: fs.createReadStream(log_file)
 		});
 		rd.on('line', (line) => {
 			if (line.startsWith('done '))
 				vis.add(line.substring(5, line.length));
-			/* 如果某id只有writing开头，需要在dataFile中找到对应的记录，将其删去，讲道理，这部分操作用数据库更简单一点 */
+			/* 如果某id只有writing开头，需要在data_file中找到对应的记录，将其删去，讲道理，这部分操作用数据库更简单一点 */
 		});
 		rd.on('close', () => {
 			resolve(vis);
@@ -59,9 +109,9 @@ function handle_default_review(text) {
 	let reviews = [];
 	while ((st = text.indexOf('<li id="rev')) >= 0) {
 		let review = {};
-		text = text.substring(st, text.length);
+		text = text.substring(st);
 		st = text.indexOf('user-id="') + 9;
-		text = text.substring(st, text.length);
+		text = text.substring(st);
 		en = text.indexOf('"');
 		review['user_id'] = text.substring(0, en);
 
@@ -74,19 +124,19 @@ function handle_default_review(text) {
 		review['rating'].push(Number(text[st]));
 		
 		st = text.indexOf('<div class="J_brief-cont">') + '<div class="J_brief-cont">'.length;
-		text = text.substring(st, text.length);
+		text = text.substring(st);
 		en = text.indexOf('</div>');
 		review['content'] = text.substring(0, en).trim();
 
 		st = text.indexOf('<span class="time">') + '<span class="time">'.length;
-		en = text.substring(st, text.length).indexOf('</span>') + st;
+		en = text.substring(st).indexOf('</span>') + st;
 		review['date'] = text.substring(st, en);
 
 		st = text.indexOf('<div class="shop-photo">') + '<div class="shop-photo">'.length;
 		if (st > en) {
 			review['photo_number'] = 0;
 		} else {
-			text = text.substring(st, text.length);
+			text = text.substring(st);
 			en = text.indexOf('</div>');
 			let count = 0;
 			for (let tmp_text = text.substring(0, en), i = tmp_text.indexOf('<img');
@@ -106,19 +156,19 @@ function handle_checkin_review(text) {
 	let reviews = [];
 	while ((st = text.indexOf('<li id="review')) >= 0) {
 		let review = {};
-		text = text.substring(st, text.length);
+		text = text.substring(st);
 		st = text.indexOf('/member/') + '/member/'.length;
-		text = text.substring(st, text.length);
+		text = text.substring(st);
 		en = text.indexOf('"');
 		review['user_id'] = text.substring(0, en);
 
 		st = text.indexOf('<span class="time">') + '<span class="time">'.length;
-		text = text.substring(st, text.length);
+		text = text.substring(st);
 		en = text.indexOf('</span>');
 		review['check_in'] = text.substring(0, en);
 		
 		st = text.indexOf('<p>') + '<p>'.length;
-		text = text.substring(st, text.length);
+		text = text.substring(st);
 		en = text.indexOf('</p>');
 		review['content'] = text.substring(0, en).trim();
 
@@ -135,7 +185,7 @@ function handle_checkin_review(text) {
 		if (st > en) {
 			review['photo_number'] = 0;
 		} else {
-			text = text.substring(st, text.length);
+			text = text.substring(st);
 			en = text.indexOf('</div>');
 			let count = 0;
 			for (let tmp_text = text.substring(0, en), i = tmp_text.indexOf('<img');
@@ -157,6 +207,10 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 	option.headers['Upgrade-insecure-Requests'] = 1;
 
 	let res = http.get(option);
+	/*let res = await rate_limiter(1, 1000, () => {
+		console.log('%s ms - %s', Date.now() - start_time, shop_id);
+		return http.get(option);
+	});*/
 	let text = await readContent(res);
 	let st, en;
 	st = text.indexOf('<div class="Pages">');
@@ -169,7 +223,7 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 	shop_config[review_type]['review_info'] = handler(text);
 	shop_config[review_type]['review_number'] = shop_config[review_type]['review_info'].length;
 
-	en = text.substring(st, text.length).indexOf('</div>') + 6;
+	en = text.substring(st).indexOf('</div>') + 6;
 	text = text.substring(st, st + en);
 	let re = /data-pg="(\d+)"/g;
 	let max_no = 1, page_no;
@@ -179,7 +233,7 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 				max_no = Number(page_no[1]);
 		}
 	}
-	//console.log(max_no);
+	console.log(shop_id, 'page max_no = ', max_no);
 	
 	for (let i = 1; i <= max_no; i++) {
 		let params = querystring.stringify({
@@ -188,6 +242,10 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 		option.path = '/shop/' + shop_id + '/' + subpath + '?' + params;
 
 		res = http.get(option);
+		/*res = await rate_limiter(1, 1000, () => {
+			console.log('%s ms - %s', Date.now() - start_time, shop_id);
+			return http.get(option);
+		});*/
 		text = await readContent(res);
 
 		shop_config[review_type]['review_info'] = shop_config[review_type]['review_info'].concat(handler(text));
@@ -196,136 +254,187 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 }
 
 async function work(vis, shop_id) {
-	let shop_config = {};
+	return new Promise(async (resolve, reject) => {
+		let shop_config = {};
 
-	console.log(shop_id);
+		console.log(shop_id);
 
-	/* request 1 */
-	/* 模仿浏览器请求 */
-	let option = {
-		host: 'www.dianping.com',
-		path: '/shop',
-		port: 80,
-		headers: {
-			'Connection': 'keep-alive',
-			'Pragma': 'no-cache',
-			'Cache-Control': 'no-cache',
-			'Upgrade-Insecure-Requests': 1,
-			'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36',
-			'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-			'Referer': 'http://www.dianping.com/search/category',
-			//'Accept-Encoding': 'gzip, deflate, sdch',
-			'Accept-Language': 'zh-CN,zh;q=0.8'
-		}
-	};
-	option.path = option.path + '/' + shop_id;
-
-	let res = http.get(option);
-	let text = await readContent(res);
-	//console.log(shop_id);
-
-	vis.add(shop_id);
-
-	let st = text.indexOf('window.shop_config=') + 19;
-	let en = text.substring(st, text.length).indexOf('</script>') + st;
-	//console.log(text.substring(st, en));
-
-	/* dangerous code */
-	let tmp_conf = eval('(' + text.substring(st, en) + ')');
-	//console.log(tmp_conf);
-
-	Object.assign(shop_config, {
-		shop_id: shop_id,
-		shop_name: tmp_conf['shopName'],
-		address: tmp_conf['address'],
-		lat: tmp_conf['shopGlat'],
-		lng: tmp_conf['shopGlng'],
-		city_id: tmp_conf['cityId'],
-		city_name: tmp_conf['cityName'],
-		main_category_name: tmp_conf['mainCategoryName'],
-		main_category_id: tmp_conf['mainCategoryId'],
-		category_name: tmp_conf['categoryName'],
-		main_region_id: tmp_conf['mainRegionId'],
-		shop_power: tmp_conf['shopPower']
-	});
-
-	//console.log(shop_config);
-
-	/* request 2 */
-	option.path = '/ajax/json/shopDynamic/reviewAndStar';
-	let params = querystring.stringify({
-		shopId: shop_id,
-		cityId: tmp_conf['cityId'],
-		mainCategoryId: tmp_conf['mainCategoryId']
-	});
-	option.path += '?' + params;
-	option.headers['Accept'] = 'application/json, text/javascript, */*; q=0.01';
-	option.headers['Pragma'] = 'http://www.dianping.com/shop/' + shop_id;
-	option.headers['X-Requested-With'] = 'XMLHttpRequest';
-	option.headers['Upgrade-Insecure-Request'] = null;
-
-	res = http.get(option);
-	text = await readContent(res);
-	tmp_conf = JSON.parse(text);
-	//console.log(tmp_conf);
-
-	Object.assign(shop_config, {
-		avg_price: tmp_conf['avgPrice'],
-		default_review_count: tmp_conf['defaultReviewCount'],
-		total_review_count: tmp_conf['totalReviewCount'],
-		rating: {
-			'口味': tmp_conf['shopRefinedScoreValueList'][0],
-			'环境': tmp_conf['shopRefinedScoreValueList'][1],
-			'服务': tmp_conf['shopRefinedScoreValueList'][2]
-		},
-
-		all_reviews: {
-			default_numbers: tmp_conf['defaultReviewCount'],
-			all_stars: {
-				star_1: tmp_conf['reviewCountStar1'],
-				star_2: tmp_conf['reviewCountStar2'],
-				star_3: tmp_conf['reviewCountStar3'],
-				star_4: tmp_conf['reviewCountStar4'],
-				star_5: tmp_conf['reviewCountStar5']
+		/* request 1 */
+		/* 模仿浏览器请求 */
+		console.log(shop_id, 'sending request 1...');
+		let option = {
+			host: 'www.dianping.com',
+			path: '/shop',
+			port: 80,
+			headers: {
+				'Connection': 'keep-alive',
+				'Pragma': 'no-cache',
+				'Cache-Control': 'no-cache',
+				'Upgrade-Insecure-Requests': 1,
+				'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36',
+				'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+				'Referer': 'http://www.dianping.com/search/category',
+				//'Accept-Encoding': 'gzip, deflate, sdch',
+				'Accept-Language': 'zh-CN,zh;q=0.8'
 			}
+		};
+		option.path = option.path + '/' + shop_id;
+
+		let res = http.get(option);
+		/*let res = await rate_limiter(1, 1000, () => {
+			console.log('%s ms - %s', Date.now() - start_time, shop_id);
+			return http.get(option);
+		});*/
+		let text = await readContent(res);
+		//console.log(shop_id);
+
+		let st = text.indexOf('window.shop_config=') + 19;
+		let en = text.substring(st).indexOf('</script>') + st;
+		//console.log(text.substring(st, en));
+
+		/* dangerous code */
+		let tmp_conf = eval('(' + text.substring(st, en) + ')');
+		//console.log(tmp_conf);
+
+		Object.assign(shop_config, {
+			shop_id: shop_id,
+			shop_name: tmp_conf['shopName'],
+			address: tmp_conf['address'],
+			lat: tmp_conf['shopGlat'],
+			lng: tmp_conf['shopGlng'],
+			city_id: tmp_conf['cityId'],
+			city_name: tmp_conf['cityName'],
+			main_category_name: tmp_conf['mainCategoryName'],
+			main_category_id: tmp_conf['mainCategoryId'],
+			category_name: tmp_conf['categoryName'],
+			main_region_id: tmp_conf['mainRegionId'],
+			shop_power: tmp_conf['shopPower']
+		});
+
+		console.log(shop_id, 'request 1 finished.');
+		//console.log(shop_config);
+
+		/* request 2 */
+		console.log(shop_id, 'sending request 2...');
+		option.path = '/ajax/json/shopDynamic/reviewAndStar';
+		let params = querystring.stringify({
+			shopId: shop_id,
+			cityId: tmp_conf['cityId'],
+			mainCategoryId: tmp_conf['mainCategoryId']
+		});
+		option.path += '?' + params;
+		option.headers['Accept'] = 'application/json, text/javascript, */*; q=0.01';
+		option.headers['Pragma'] = 'http://www.dianping.com/shop/' + shop_id;
+		option.headers['X-Requested-With'] = 'XMLHttpRequest';
+		option.headers['Upgrade-Insecure-Request'] = null;
+
+		res = http.get(option);
+		/*res = await rate_limiter(1, 1000, () => {
+			console.log('%s ms - %s', Date.now() - start_time, shop_id);
+			return http.get(option);
+		});*/
+		text = await readContent(res);
+		tmp_conf = JSON.parse(text);
+		//console.log(tmp_conf);
+
+		Object.assign(shop_config, {
+			avg_price: tmp_conf['avgPrice'],
+			default_review_count: tmp_conf['defaultReviewCount'],
+			total_review_count: tmp_conf['totalReviewCount'],
+			rating: {
+				'口味': tmp_conf['shopRefinedScoreValueList'][0],
+				'环境': tmp_conf['shopRefinedScoreValueList'][1],
+				'服务': tmp_conf['shopRefinedScoreValueList'][2]
+			},
+
+			all_reviews: {
+				default_numbers: tmp_conf['defaultReviewCount'],
+				all_stars: {
+					star_1: tmp_conf['reviewCountStar1'],
+					star_2: tmp_conf['reviewCountStar2'],
+					star_3: tmp_conf['reviewCountStar3'],
+					star_4: tmp_conf['reviewCountStar4'],
+					star_5: tmp_conf['reviewCountStar5']
+				}
+			}
+		});
+		//console.log(shop_config);
+		console.log(shop_id, 'request 2 finished.');
+
+		/* request 3 */
+		/* 默认点评 review_all */
+		console.log(shop_id, 'sending request 3');
+
+		await save_review(shop_id, option, 'default_reviews', 'review_all', handle_default_review, shop_config);
+
+		console.log(shop_id, 'request 3 finished.');
+
+		//console.log(shop_config);
+		/* request 4 review_short */
+		console.log(shop_id, 'sending request 4');
+
+		await save_review(shop_id, option, 'checkin_reviews', 'review_short', handle_checkin_review, shop_config);
+
+		console.log(shop_id, 'request 4 finished.');
+		//console.log(JSON.stringify(shop_config));
+		/* alike atom write */
+		if (!vis.has(shop_id)) {
+			vis.add(shop_id);
+			fs.appendFileSync(log_file, 'writing ' + shop_id + '\n');
+			fs.appendFileSync(data_file, JSON.stringify(shop_config) + '\n');
+			fs.appendFileSync(log_file, 'done ' + shop_id + '\n');
 		}
+		resolve();
 	});
-	//console.log(shop_config);
+}
 
-	/* request 3 */
-	/* 默认点评 review_all */
+let timer = (timeout) => {
+	return new Promise((resolve, reject) => {
+		setTimeout(resolve, timeout);
+	});
+}
 
-	await save_review(shop_id, option, 'default_reviews', 'review_all', handle_default_review, shop_config);
-
-	//console.log(shop_config);
-	/* request 4 review_short */
-	await save_review(shop_id, option, 'checkin_reviews', 'review_short', handle_checkin_review, shop_config);
-
-	//console.log(JSON.stringify(shop_config));
-	/* alike atom write */
-	{
-		fs.appendFileSync(logFile, 'writing ' + shop_id + '\n');
-		fs.appendFileSync(dataFile, JSON.stringify(shop_config) + '\n');
-		fs.appendFileSync(logFile, 'done ' + shop_id + '\n');
+function go(vis, buf, buf_lim) {
+	let promises = [];
+	let line;
+	while (line = buf.shift()) {
+		if (!vis.has(line))
+			promises.push(work(vis, line));
 	}
+	console.log(promises);
+	return Promise.race([timer(promises.length * 60000), Promise.all(promises)]);
 }
 
 (async function() {
 
-	let logWriter = fs.createWriteStream(logFile, { flags: 'a' });
-	let vis = await initLog(logFile);
+	let logWriter = fs.createWriteStream(log_file, { flags: 'a' });
+	let vis = await initLog(log_file);
 	logWriter.end();
 
 	let rd = readline.createInterface({
 		input: fs.createReadStream('dianping_id_shuf.txt')
 	});
 
-	let cnt = 0;
-	rd.on('line', async (line) => {
-		if (++cnt > 2)
-			return;
-		if (!vis.has(line)) {
-			work(vis, line);
+	let buf = [];
+	let buf_lim = 20;
+
+	rd.on('line', (line) => {
+		if (buf.length >= buf_lim) {
+			rd.pause();
+		} else {
+			buf.push(line);
 		}
 	});
+
+	rd.on('pause', async () => {
+		await go(vis, buf, buf_lim);
+		rd.resume();
+	});
+
+	rd.on('close', async () => {
+		await go(vis, buf, buf_lim);
+	});
 })();
+
+process.on('uncaughtException', (err) => console.log(`Caught exception: ${err}`));
+process.on('unhandledRejection', (reason, p) => console.log('Unhandled Rejection at: Promise ', p, 'reason: ', reason));
