@@ -12,6 +12,12 @@ const LOG_FILE = 'prog_log.txt'
 
 const prog_log = fs.createWriteStream(LOG_FILE, { flags: 'a' });
 
+const GLOBAL_RATE = 10 * 1000;
+var global_rate = GLOBAL_RATE; // 10s
+
+const UPPER_BOUND = 1 * 1000; // 1s
+const LOWER_BOUND = 5 * 1000; // 5s
+
 const start_time = Date.now();
 async function rate_limiter(count, interval, fn) {
 	return new Promise((resolve, reject) => {
@@ -22,6 +28,14 @@ async function rate_limiter(count, interval, fn) {
 	});
 }
 
+let timer = (timeout) => {
+	return new Promise((resolve, reject) => {
+		setTimeout(() => {
+			resolve('timeout');
+		}, timeout);
+	});
+}
+
 function LOG() {
 	let args = Array.prototype.slice.call(arguments);
 	let output = '[' + (new Date).toUTCString() + ']: '
@@ -29,47 +43,6 @@ function LOG() {
 	console.log(output);
 	prog_log.write(output + '\n');
 }
-
-/*
-function rate_limiter(limit_count, limit_interval, fn) {
-	let queue = [];
-	let count = limit_count;
-	
-	async function call_next(args) {
-		setTimeout(() => {
-			if (queue.length > 0) {
-				return await call_next();
-			} else {
-				count++;
-			}
-		}, limit_interval);
-		let call_args = queue.shift();
-		if (!call_args && args) {
-			return fn.apply(args[0], args[1]);
-		}
-		return fn.apply(call_args[0], call_args[1]);
-	}
-	
-	return new Promise((resolve, reject) => () {
-		let ctx = this;
-		let args = Array.prototype.slice.call(arguments);
-		queue.push([ctx, args]);
-		if (count <= 0) {
-			queue.push([ctx, args]);
-			return;
-		}
-		count--;
-		return await call_next(args);
-	});
-}
-
-let send_request = rate_limit(1, 1000, (option) => {
-	return new Promise((resolve, reject) => {
-		resolve(http.get(option));
-	});
-	//return http.get(option);
-});
-*/
 
 function readContent(request) {
 	return new Promise((resolve, reject) => {
@@ -200,6 +173,7 @@ function handle_checkin_review(text) {
 	return reviews;
 }
 
+/* TODO 判一下这里被block的情况 */
 async function save_review(shop_id, option, review_type, subpath, handler, shop_config) {
 	option.path = '/shop/' + shop_id + '/' + subpath;
 	option.headers['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8';
@@ -213,6 +187,13 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 		return http.get(option);
 	});*/
 	let text = await readContent(res);
+	if (text.indexOf('商户不存在-大众点评网') >= 0) {
+		return;
+	}
+	if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0) {
+		LOG(shop_id, 'request 2 \x1b[31mblocked\x1b[0m.');
+		return 'blocked';
+	}
 	let st, en;
 	st = text.indexOf('<div class="Pages">');
 
@@ -228,6 +209,9 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 	text = text.substring(st, st + en);
 	let re = /data-pg="(\d+)"/g;
 	let max_no = 1, page_no;
+
+	await timer(Math.random() * (UPPER_BOUND - LOWER_BOUND) + LOWER_BOUND);
+
 	if (st >= 0) {
 		while ((page_no = re.exec(text)) !== null) {
 			if (max_no < Number(page_no[1]))
@@ -248,9 +232,15 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 			return http.get(option);
 		});*/
 		text = await readContent(res);
+		if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0) {
+			LOG(shop_id, 'request 2 \x1b[31mblocked\x1b[0m.');
+			return 'blocked';
+		}
 
 		shop_config[review_type]['review_info'] = shop_config[review_type]['review_info'].concat(handler(text));
 		shop_config[review_type]['review_number'] = shop_config[review_type]['review_info'].length;
+
+		await timer(Math.random() * (UPPER_BOUND - LOWER_BOUND) + LOWER_BOUND);
 	}
 }
 
@@ -293,7 +283,13 @@ async function work(vis, shop_id) {
 		let en = text.substring(st).indexOf('</script>') + st;
 		//console.log(text.substring(st, en));
 
+		if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0) {
+			LOG(shop_id, 'request 1 \x1b[31mblocked\x1b[0m.');
+			/* 这个resolve 是异步调用的，所以下面的东西还是可能会被执行*/
+			return reject('blocked');
+		}
 		/* dangerous code */
+		//onsole.log(text);
 		let tmp_conf = eval('(' + text.substring(st, en) + ')');
 		//console.log(tmp_conf);
 
@@ -335,6 +331,11 @@ async function work(vis, shop_id) {
 			return http.get(option);
 		});*/
 		text = await readContent(res);
+
+		if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0) {
+			LOG(shop_id, 'request 2 \x1b[31mblocked\x1b[0m.');
+			return reject('blocked');
+		}
 		tmp_conf = JSON.parse(text);
 		//console.log(tmp_conf);
 
@@ -366,7 +367,9 @@ async function work(vis, shop_id) {
 		/* 默认点评 review_all */
 		LOG(shop_id, 'sending request 3');
 
-		await save_review(shop_id, option, 'default_reviews', 'review_all', handle_default_review, shop_config);
+		let ret = await save_review(shop_id, option, 'default_reviews', 'review_all', handle_default_review, shop_config);
+		if (ret === 'blocked')
+			return reject('blocked');
 
 		LOG(shop_id, 'request 3 finished.');
 
@@ -374,7 +377,9 @@ async function work(vis, shop_id) {
 		/* request 4 review_short */
 		LOG(shop_id, 'sending request 4');
 
-		await save_review(shop_id, option, 'checkin_reviews', 'review_short', handle_checkin_review, shop_config);
+		ret = await save_review(shop_id, option, 'checkin_reviews', 'review_short', handle_checkin_review, shop_config);
+		if (ret === 'blocked')
+			return reject('blocked');
 
 		LOG(shop_id, 'request 4 finished.');
 		//console.log(JSON.stringify(shop_config));
@@ -384,16 +389,9 @@ async function work(vis, shop_id) {
 			fs.appendFileSync(log_file, 'writing ' + shop_id + '\n');
 			fs.appendFileSync(data_file, JSON.stringify(shop_config) + '\n');
 			fs.appendFileSync(log_file, 'done ' + shop_id + '\n');
+			LOG(shop_id, 'save \x1b[32mfinished\x1b[0m.');
 		}
 		resolve();
-	});
-}
-
-let timer = (timeout) => {
-	return new Promise((resolve, reject) => {
-		setTimeout(() => {
-			resolve('timeout');
-		}, timeout);
 	});
 }
 
@@ -405,7 +403,7 @@ function go(vis, buf, buf_lim) {
 			promises.push(work(vis, line));
 	}
 	LOG(promises);
-	return Promise.race([timer(promises.length * 60000), Promise.all(promises)]);
+	return Promise.race([timer(global_rate), Promise.all(promises)]);
 }
 
 (async function() {
@@ -419,7 +417,7 @@ function go(vis, buf, buf_lim) {
 	});
 
 	let buf = [], lines = [];
-	let buf_lim = 20;
+	let buf_lim = 1;
 
 	/*
 	rd.on('line', (line) => {
@@ -450,14 +448,34 @@ function go(vis, buf, buf_lim) {
 		while (line = lines.shift()) {
 			buf.push(line);
 			if (buf.length >= buf_lim) {
-				let ret = await go(vis, buf, buf_lim);
-				if (ret === 'timeout')
-					LOG('timeout happened.');
+				let ret;
+				try {
+					ret = await go(vis, buf, buf_lim);
+					global_rate = GLOBAL_RATE;
+					if (ret === 'timeout')
+						LOG('timeout happened.');
+				} catch (e) {
+					if (e === 'blocked') {
+						global_rate *= 2;
+					}
+					LOG(e, 'global_rate = ', global_rate)
+					await timer(global_rate);
+				}
 			}
 		}
-		let ret = await go(vis, buf, buf_lim);
-		if (ret === 'timeout')
-			LOG('timeout happened.');
+		let ret;
+		try {
+			ret = await go(vis, buf, buf_lim);
+			global_rate = GLOBAL_RATE;
+			if (ret === 'timeout')
+				LOG('timeout happened.');
+		} catch (e) {
+			if (e === 'blocked') {
+				global_rate *= 2;
+			}
+			LOG(e, 'global_rate = ', global_rate)
+			await timer(global_rate);
+		}
 	});
 })();
 
