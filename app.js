@@ -81,6 +81,9 @@ function initLog(log_file) {
 function handle_default_review(text) {
 	let st, en;
 	let reviews = [];
+	if (text.indexOf('<li id="rev') < 0) {
+		console.log(text);
+	}
 	while ((st = text.indexOf('<li id="rev')) >= 0) {
 		let review = {};
 		text = text.substring(st);
@@ -128,6 +131,9 @@ function handle_default_review(text) {
 function handle_checkin_review(text) {
 	let st, en;
 	let reviews = [];
+	if (text.indexOf('<li id="review') < 0) {
+		console.log(text);
+	}
 	while ((st = text.indexOf('<li id="review')) >= 0) {
 		let review = {};
 		text = text.substring(st);
@@ -181,6 +187,9 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 	option.headers['Referer'] = 'http://www.dianping.com/shop/' + shop_id + '/' + subpath;
 	option.headers['Upgrade-insecure-Requests'] = 1;
 
+	//先用这个测试一下
+	option.path = option.path + '?' + 'uuid=f82aad1d-4492-4903-977e-0800ff5b2d2f';
+
 	let res = http.get(option);
 	/*let res = await rate_limiter(1, 1000, () => {
 		console.log('%s ms - %s', Date.now() - start_time, shop_id);
@@ -190,8 +199,8 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 	if (text.indexOf('商户不存在-大众点评网') >= 0) {
 		return;
 	}
-	if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0) {
-		LOG(shop_id, 'request 2 \x1b[31mblocked\x1b[0m.');
+	if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0 || text.indexOf('请输入下方图形验证码') >= 0) {
+		LOG(shop_id, 'request 3/4 \x1b[31mblocked\x1b[0m.');
 		return 'blocked';
 	}
 	let st, en;
@@ -222,18 +231,20 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 	
 	for (let i = 1; i <= max_no; i++) {
 		let params = querystring.stringify({
-			pageno: i
+			pageno: i,
+			uuid: 'f82aad1d-4492-4903-977e-0800ff5b2d2f'
 		});
 		option.path = '/shop/' + shop_id + '/' + subpath + '?' + params;
 
+		LOG('pageno = ', i);
 		res = http.get(option);
 		/*res = await rate_limiter(1, 1000, () => {
 			console.log('%s ms - %s', Date.now() - start_time, shop_id);
 			return http.get(option);
 		});*/
 		text = await readContent(res);
-		if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0) {
-			LOG(shop_id, 'request 2 \x1b[31mblocked\x1b[0m.');
+		if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0 || text.indexOf('请输入下方图形验证码') >= 0) {
+			LOG(shop_id, 'request 3/4 \x1b[31mblocked\x1b[0m.');
 			return 'blocked';
 		}
 
@@ -290,8 +301,13 @@ async function work(vis, shop_id) {
 		}
 		/* dangerous code */
 		//onsole.log(text);
-		let tmp_conf = eval('(' + text.substring(st, en) + ')');
-		//console.log(tmp_conf);
+		let tmp_conf;
+		try {
+			tmp_conf = eval('(' + text.substring(st, en) + ')');
+			//console.log(tmp_conf);
+		} catch (e) {
+			return reject(e);
+		}
 
 		Object.assign(shop_config, {
 			shop_id: shop_id,
@@ -395,6 +411,10 @@ async function work(vis, shop_id) {
 	});
 }
 
+const GLOBAL_TIMEOUT_UPPER = 20 * 60 * 1000; //20min;
+const GLOBAL_TIMEOUT = 60 * 1000; //60s;
+var global_timeout = GLOBAL_TIMEOUT;
+
 function go(vis, buf, buf_lim) {
 	let promises = [];
 	let line;
@@ -403,7 +423,7 @@ function go(vis, buf, buf_lim) {
 			promises.push(work(vis, line));
 	}
 	LOG(promises);
-	return Promise.race([timer(global_rate), Promise.all(promises)]);
+	return Promise.race([timer(global_timeout), Promise.all(promises)]);
 }
 
 (async function() {
@@ -449,32 +469,53 @@ function go(vis, buf, buf_lim) {
 			buf.push(line);
 			if (buf.length >= buf_lim) {
 				let ret;
+				let buf_copy = buf.slice();
 				try {
 					ret = await go(vis, buf, buf_lim);
 					global_rate = GLOBAL_RATE;
-					if (ret === 'timeout')
-						LOG('timeout happened.');
+					if (ret === 'timeout' && global_timeout < GLOBAL_TIMEOUT_UPPER) {
+						global_timeout *= 2;
+						LOG('\x1b[33mtimeout\x1b[0m happened.', 'global_timeout = ', global_timeout);
+						for (let ll of buf_copy)
+							lines.splice(0, 0, ll);
+					} else {
+						global_timeout = GLOBAL_TIMEOUT;
+					}
 				} catch (e) {
 					if (e === 'blocked') {
 						global_rate *= 2;
 					}
-					LOG(e, 'global_rate = ', global_rate)
+					LOG(e, 'global_rate = ', global_rate);
 					await timer(global_rate);
 				}
+
+				await timer(Math.random() * (UPPER_BOUND - LOWER_BOUND) + LOWER_BOUND);
 			}
 		}
-		let ret;
-		try {
-			ret = await go(vis, buf, buf_lim);
-			global_rate = GLOBAL_RATE;
-			if (ret === 'timeout')
-				LOG('timeout happened.');
-		} catch (e) {
-			if (e === 'blocked') {
-				global_rate *= 2;
+
+		while (buf.length > 0) {
+			let ret;
+			let buf_copy = buf.slice();
+			try {
+				ret = await go(vis, buf, buf_lim);
+				global_rate = GLOBAL_RATE;
+				if (ret === 'timeout' && global_timeout < GLOBAL_TIMEOUT_UPPER) {
+					global_timeout *= 2;
+					LOG('\x1b[33mtimeout\x1b[0m happened.', 'global_timeout = ', global_timeout);
+					for (let ll of buf_copy)
+						lines.splice(0, 0, ll);
+				} else {
+					global_timeout = GLOBAL_TIMEOUT;
+				}
+			} catch (e) {
+				if (e === 'blocked') {
+					global_rate *= 2;
+				}
+				LOG(e, 'global_rate = ', global_rate)
+				await timer(global_rate);
 			}
-			LOG(e, 'global_rate = ', global_rate)
-			await timer(global_rate);
+			
+			await timer(Math.random() * (UPPER_BOUND - LOWER_BOUND) + LOWER_BOUND);
 		}
 	});
 })();
