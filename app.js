@@ -15,7 +15,7 @@ const prog_log = fs.createWriteStream(LOG_FILE, { flags: 'a' });
 const GLOBAL_RATE = 10 * 1000;
 var global_rate = GLOBAL_RATE; // 10s
 
-const UPPER_BOUND = 1 * 1000; // 1s
+const UPPER_BOUND = 2 * 1000; // 2s
 const LOWER_BOUND = 5 * 1000; // 5s
 
 const start_time = Date.now();
@@ -148,9 +148,13 @@ function handle_checkin_review(text) {
 		review['check_in'] = text.substring(0, en);
 		
 		st = text.indexOf('<p>') + '<p>'.length;
-		text = text.substring(st);
-		en = text.indexOf('</p>');
-		review['content'] = text.substring(0, en).trim();
+		//text = text.substring(st);
+		en = text.substring(st).indexOf('</p>') + st;
+		if (st > text.indexOf('</div>')) {
+			review['content'] = '';
+		} else {
+			review['content'] = text.substring(st, en).trim();
+		}
 
 		st = text.indexOf('<span class="item-rank-rst irr-star') + '<span class="item-rank-rst irr-star'.length;
 		if (st > en) {
@@ -196,9 +200,14 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 		return http.get(option);
 	});*/
 	let text = await readContent(res);
+	if (text.length < 10) {
+		LOG(shop_id, 'request 3/4 \x1b[31mblocked\x1b[0m.');
+		return 'blocked';
+	}
 	if (text.indexOf('商户不存在-大众点评网') >= 0) {
 		return;
 	}
+	console.log(text.indexOf('请输入下方图形验证码'));
 	if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0 || text.indexOf('请输入下方图形验证码') >= 0) {
 		LOG(shop_id, 'request 3/4 \x1b[31mblocked\x1b[0m.');
 		return 'blocked';
@@ -327,6 +336,7 @@ async function work(vis, shop_id) {
 		LOG(shop_id, 'request 1 finished.');
 		//console.log(shop_config);
 
+		await timer(Math.random() * (UPPER_BOUND - LOWER_BOUND) + LOWER_BOUND);
 		/* request 2 */
 		LOG(shop_id, 'sending request 2...');
 		option.path = '/ajax/json/shopDynamic/reviewAndStar';
@@ -379,6 +389,7 @@ async function work(vis, shop_id) {
 		//console.log(shop_config);
 		LOG(shop_id, 'request 2 finished.');
 
+		await timer(Math.random() * (UPPER_BOUND - LOWER_BOUND) + LOWER_BOUND);
 		/* request 3 */
 		/* 默认点评 review_all */
 		LOG(shop_id, 'sending request 3');
@@ -389,6 +400,7 @@ async function work(vis, shop_id) {
 
 		LOG(shop_id, 'request 3 finished.');
 
+		await timer(Math.random() * (UPPER_BOUND - LOWER_BOUND) + LOWER_BOUND);
 		//console.log(shop_config);
 		/* request 4 review_short */
 		LOG(shop_id, 'sending request 4');
@@ -423,7 +435,7 @@ function go(vis, buf, buf_lim) {
 			promises.push(work(vis, line));
 	}
 	LOG(promises);
-	return Promise.race([timer(global_timeout), Promise.all(promises)]);
+	return Promise.all(promises);
 }
 
 (async function() {
