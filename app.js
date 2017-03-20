@@ -18,16 +18,6 @@ var global_rate = GLOBAL_RATE; // 10s
 const UPPER_BOUND = 2 * 1000; // 2s
 const LOWER_BOUND = 5 * 1000; // 5s
 
-const start_time = Date.now();
-async function rate_limiter(count, interval, fn) {
-	return new Promise((resolve, reject) => {
-		setTimeout(() => {
-			let res = fn();
-			resolve(res);
-		}, interval * 1.0 / count);
-	});
-}
-
 let timer = (timeout) => {
 	return new Promise((resolve, reject) => {
 		setTimeout(() => {
@@ -183,7 +173,8 @@ function handle_checkin_review(text) {
 	return reviews;
 }
 
-/* TODO 判一下这里被block的情况 */
+/* TODO 判一下这里被block的情况 update: DONE */
+/* TODO */
 async function save_review(shop_id, option, review_type, subpath, handler, shop_config) {
 	option.path = '/shop/' + shop_id + '/' + subpath;
 	option.headers['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8';
@@ -200,15 +191,11 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 		return http.get(option);
 	});*/
 	let text = await readContent(res);
-	if (text.length < 10) {
-		LOG(shop_id, 'request 3/4 \x1b[31mblocked\x1b[0m.');
-		return 'blocked';
-	}
+
 	if (text.indexOf('商户不存在-大众点评网') >= 0) {
 		return;
 	}
-	console.log(text.indexOf('请输入下方图形验证码'));
-	if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0 || text.indexOf('请输入下方图形验证码') >= 0) {
+	if (text.lengh < 10 || text.indexOf('为了您的正常访问，请先输入验证码') >= 0 || text.indexOf('请输入下方图形验证码') >= 0) {
 		LOG(shop_id, 'request 3/4 \x1b[31mblocked\x1b[0m.');
 		return 'blocked';
 	}
@@ -238,6 +225,7 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 	}
 	LOG(shop_id, 'page max_no = ', max_no);
 	
+	/* TODO 不严格按顺序访问 */
 	for (let i = 1; i <= max_no; i++) {
 		let params = querystring.stringify({
 			pageno: i,
@@ -252,7 +240,7 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 			return http.get(option);
 		});*/
 		text = await readContent(res);
-		if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0 || text.indexOf('请输入下方图形验证码') >= 0) {
+		if (text.length < 10 || text.indexOf('为了您的正常访问，请先输入验证码') >= 0 || text.indexOf('请输入下方图形验证码') >= 0) {
 			LOG(shop_id, 'request 3/4 \x1b[31mblocked\x1b[0m.');
 			return 'blocked';
 		}
@@ -264,6 +252,7 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 	}
 }
 
+/* TODO 增加不同的UA，每次随机选UA发送请求 */
 async function work(vis, shop_id) {
 	return new Promise(async (resolve, reject) => {
 		let shop_config = {};
@@ -423,10 +412,6 @@ async function work(vis, shop_id) {
 	});
 }
 
-const GLOBAL_TIMEOUT_UPPER = 20 * 60 * 1000; //20min;
-const GLOBAL_TIMEOUT = 60 * 1000; //60s;
-var global_timeout = GLOBAL_TIMEOUT;
-
 function go(vis, buf, buf_lim) {
 	let promises = [];
 	let line;
@@ -451,25 +436,7 @@ function go(vis, buf, buf_lim) {
 	let buf = [], lines = [];
 	let buf_lim = 1;
 
-	/*
-	rd.on('line', (line) => {
-		if (buf.length >= buf_lim) {
-			rd.pause();
-		} else {
-			buf.push(line);
-		}
-	});
-
-	rd.on('pause', async () => {
-		await go(vis, buf, buf_lim);
-		rd.resume();
-	});
-
-	rd.on('close', async () => {
-		await go(vis, buf, buf_lim);
-	});
-	*/
-	/* This makes me feel very sick */
+	/* Just put all lines in memory. This makes me feel very sick */
 	rd.on('line', (line) => {
 		if (!vis.has(line))
 			lines.push(line);
@@ -485,14 +452,6 @@ function go(vis, buf, buf_lim) {
 				try {
 					ret = await go(vis, buf, buf_lim);
 					global_rate = GLOBAL_RATE;
-					if (ret === 'timeout' && global_timeout < GLOBAL_TIMEOUT_UPPER) {
-						global_timeout *= 2;
-						LOG('\x1b[33mtimeout\x1b[0m happened.', 'global_timeout = ', global_timeout);
-						for (let ll of buf_copy)
-							lines.splice(0, 0, ll);
-					} else {
-						global_timeout = GLOBAL_TIMEOUT;
-					}
 				} catch (e) {
 					if (e === 'blocked') {
 						global_rate *= 2;
@@ -511,14 +470,6 @@ function go(vis, buf, buf_lim) {
 			try {
 				ret = await go(vis, buf, buf_lim);
 				global_rate = GLOBAL_RATE;
-				if (ret === 'timeout' && global_timeout < GLOBAL_TIMEOUT_UPPER) {
-					global_timeout *= 2;
-					LOG('\x1b[33mtimeout\x1b[0m happened.', 'global_timeout = ', global_timeout);
-					for (let ll of buf_copy)
-						lines.splice(0, 0, ll);
-				} else {
-					global_timeout = GLOBAL_TIMEOUT;
-				}
 			} catch (e) {
 				if (e === 'blocked') {
 					global_rate *= 2;
