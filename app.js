@@ -6,6 +6,7 @@ const querystring = require('querystring');
 const readline = require('readline');
 const util = require('util');
 const assert = require('assert');
+const ua_list = require('./user-agents.json')
 
 const data_file = 'dianping_data.txt';
 const log_file = 'dianping_log.txt';
@@ -75,6 +76,10 @@ function initLog(log_file) {
 			reject(err);
 		})
 	});
+}
+
+function random_user_agent() {
+	return ua_list[Math.floor(Math.random() * ua_list.length)];
 }
 
 function handle_default_review(text) {
@@ -188,6 +193,7 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 	option.headers['Host'] = 'www.dianping.com';
 	option.headers['Referer'] = 'http://www.dianping.com/shop/' + shop_id + '/' + subpath;
 	option.headers['Upgrade-insecure-Requests'] = 1;
+	option.headers['User-Agent'] = random_user_agent();
 
 	let res = http.get(option);
 	let text = await readContent(res);
@@ -232,6 +238,7 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 			uuid: 'f82aad1d-4492-4903-977e-0800ff5b2d2f'
 		});
 		option.path = '/shop/' + shop_id + '/' + subpath + '?' + params;
+		option.headers['User-Agent'] = random_user_agent();
 
 		LOG('pageno = ', i);
 		res = http.get(option);
@@ -276,6 +283,7 @@ async function work(vis, shop_id) {
 			}
 		};
 		option.path = option.path + '/' + shop_id;
+		option.headers['User-Agent'] = random_user_agent();
 
 		let res = http.get(option);
 		let text = await readContent(res);
@@ -290,7 +298,7 @@ async function work(vis, shop_id) {
 			return reject('blocked');
 		}
 		/* dangerous code */
-		console.log(text);
+		//console.log(text);
 		let tmp_conf;
 		try {
 			tmp_conf = eval('(' + text.substring(st, en) + ')');
@@ -331,6 +339,7 @@ async function work(vis, shop_id) {
 		option.headers['Pragma'] = 'http://www.dianping.com/shop/' + shop_id;
 		option.headers['X-Requested-With'] = 'XMLHttpRequest';
 		option.headers['Upgrade-Insecure-Request'] = null;
+		option.headers['User-Agent'] = random_user_agent();
 
 		res = http.get(option);
 		text = await readContent(res);
