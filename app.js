@@ -8,6 +8,8 @@ const util = require('util');
 const assert = require('assert');
 const ua_list = require('./user-agents.json')
 
+var Socks = require('socks');
+
 const data_file = 'dianping_data.txt';
 const log_file = 'dianping_log.txt';
 const LOG_FILE = 'prog_log.txt'
@@ -80,6 +82,28 @@ function initLog(log_file) {
 
 function random_user_agent() {
 	return ua_list[Math.floor(Math.random() * ua_list.length)];
+}
+
+async function random_socks_agent() {
+	//let proxies = await fetch_socks_config();TODO
+	//let proxy = proxies[Math.floor(Math.random() * proxies.length)];
+	return new Socks.Agent({
+		proxy: {
+			ipaddress: '127.0.0.1',
+			port: 8087,
+			type: 5
+		}
+	}, false, false);
+}
+
+async function send_request(option) {
+	let socks_agent = await random_socks_agent();
+	option.agent = socks_agent;
+	option.headers['User-Agent'] = random_user_agent();
+
+	let res = http.get(option);
+	let text = await readContent(res);
+	return text;
 }
 
 function handle_default_review(text) {
@@ -193,10 +217,11 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 	option.headers['Host'] = 'www.dianping.com';
 	option.headers['Referer'] = 'http://www.dianping.com/shop/' + shop_id + '/' + subpath;
 	option.headers['Upgrade-insecure-Requests'] = 1;
-	option.headers['User-Agent'] = random_user_agent();
+	//option.headers['User-Agent'] = random_user_agent();
 
-	let res = http.get(option);
-	let text = await readContent(res);
+	//let res = http.get(option);
+	//let text = await readContent(res);
+	let text = await send_request(option);
 
 	if (text.indexOf('商户不存在-大众点评网') >= 0) {
 		return;
@@ -233,16 +258,18 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 	
 	/* TODO 不严格按顺序访问 */
 	for (let i = 1; i <= max_no; i++) {
+		LOG('pageno = ', i);
+
 		let params = querystring.stringify({
 			pageno: i,
 			uuid: 'f82aad1d-4492-4903-977e-0800ff5b2d2f'
 		});
 		option.path = '/shop/' + shop_id + '/' + subpath + '?' + params;
-		option.headers['User-Agent'] = random_user_agent();
+		//option.headers['User-Agent'] = random_user_agent();
 
-		LOG('pageno = ', i);
-		res = http.get(option);
-		text = await readContent(res);
+		//res = http.get(option);
+		//text = await readContent(res);
+		text = await send_request(option);
 
 		if (text.length < 10 || text.indexOf('为了您的正常访问，请先输入验证码') >= 0 || text.indexOf('请输入下方图形验证码') >= 0) {
 			LOG(shop_id, 'request 3/4 \x1b[31mblocked\x1b[0m.');
@@ -283,10 +310,11 @@ async function work(vis, shop_id) {
 			}
 		};
 		option.path = option.path + '/' + shop_id;
-		option.headers['User-Agent'] = random_user_agent();
+		//option.headers['User-Agent'] = random_user_agent();
 
-		let res = http.get(option);
-		let text = await readContent(res);
+		//let res = http.get(option);
+		//let text = await readContent(res);
+		let text = await send_request(option);
 		//console.log(shop_id);
 
 		let st = text.indexOf('window.shop_config=') + 19;
@@ -339,10 +367,11 @@ async function work(vis, shop_id) {
 		option.headers['Pragma'] = 'http://www.dianping.com/shop/' + shop_id;
 		option.headers['X-Requested-With'] = 'XMLHttpRequest';
 		option.headers['Upgrade-Insecure-Request'] = null;
-		option.headers['User-Agent'] = random_user_agent();
+		//option.headers['User-Agent'] = random_user_agent();
 
-		res = http.get(option);
-		text = await readContent(res);
+		//res = http.get(option);
+		//text = await readContent(res);
+		text = await send_request(option);
 
 		if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0) {
 			LOG(shop_id, 'request 2 \x1b[31mblocked\x1b[0m.');

@@ -46,7 +46,8 @@
 			}
 		]
 	},
-	"AllReviews": {
+
+	"all_reviews": {
 		"default_numbers": 3006,
 		"all_star": {
 			"star_1": 72,
@@ -63,4 +64,6 @@
 ```
 GET http://www.dianping.com/shop/17179979 最下面<script>标签内有window.config = {}
 GET http://www.dianping.com/ajax/json/shopDynamic/reviewAndStar?shopId=17179979&cityId=1&mainCategoryId=205
+GET http://www.dianping.com/shop/17179979/review_all 默认点评
+GET http://www.dianping.com/shop/17179979/review_short 签到短评
 ```
