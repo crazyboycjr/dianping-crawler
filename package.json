@@ -1,0 +1,26 @@
+{
+  "name": "dianping-crawler",
+  "version": "1.0.0",
+  "description": "Distributed crawler of www.dianping.com, fetching venues and reviews data.",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/crazyboycjr/dianping-crawler.git"
+  },
+  "keywords": [
+    "dianping",
+    "crawler"
+  ],
+  "author": "crazyboycjr@gmail.com",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/crazyboycjr/dianping-crawler/issues"
+  },
+  "homepage": "https://github.com/crazyboycjr/dianping-crawler#readme",
+  "dependencies": {
+  	"socks": "^1.1.10"
+  }
+}

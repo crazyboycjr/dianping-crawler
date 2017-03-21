@@ -5,6 +5,10 @@ const fs = require('fs');
 const querystring = require('querystring');
 const readline = require('readline');
 const util = require('util');
+const assert = require('assert');
+const ua_list = require('./user-agents.json')
+
+var Socks = require('socks');
 
 const data_file = 'dianping_data.txt';
 const log_file = 'dianping_log.txt';
@@ -54,18 +58,52 @@ function initLog(log_file) {
 		let rd = readline.createInterface({
 			input: fs.createReadStream(log_file)
 		});
+		let now = 0;
 		rd.on('line', (line) => {
-			if (line.startsWith('done '))
-				vis.add(line.substring(5, line.length));
-			/* 如果某id只有writing开头，需要在data_file中找到对应的记录，将其删去，讲道理，这部分操作用数据库更简单一点 */
+			if (line.startsWith('writing '))
+				now = line.substring(8);
+			if (line.startsWith('done ')) {
+				if (line.substring(5) !== now)
+					assert(0, log_file + ' resolve failed.');
+				vis.add(now);
+				now = 0;
+			}
 		});
 		rd.on('close', () => {
+			if (now !== 0)
+				assert(0, log_file + ' resolve failed.');
 			resolve(vis);
 		});
 		rd.on('error', (err) => {
 			reject(err);
 		})
 	});
+}
+
+function random_user_agent() {
+	return ua_list[Math.floor(Math.random() * ua_list.length)];
+}
+
+async function random_socks_agent() {
+	//let proxies = await fetch_socks_config();TODO
+	//let proxy = proxies[Math.floor(Math.random() * proxies.length)];
+	return new Socks.Agent({
+		proxy: {
+			ipaddress: '127.0.0.1',
+			port: 8087,
+			type: 5
+		}
+	}, false, false);
+}
+
+async function send_request(option) {
+	let socks_agent = await random_socks_agent();
+	option.agent = socks_agent;
+	option.headers['User-Agent'] = random_user_agent();
+
+	let res = http.get(option);
+	let text = await readContent(res);
+	return text;
 }
 
 function handle_default_review(text) {
@@ -173,24 +211,17 @@ function handle_checkin_review(text) {
 	return reviews;
 }
 
-/* TODO 判一下这里被block的情况 update: DONE */
-/* TODO */
 async function save_review(shop_id, option, review_type, subpath, handler, shop_config) {
 	option.path = '/shop/' + shop_id + '/' + subpath;
 	option.headers['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8';
 	option.headers['Host'] = 'www.dianping.com';
 	option.headers['Referer'] = 'http://www.dianping.com/shop/' + shop_id + '/' + subpath;
 	option.headers['Upgrade-insecure-Requests'] = 1;
+	//option.headers['User-Agent'] = random_user_agent();
 
-	//先用这个测试一下
-	option.path = option.path + '?' + 'uuid=f82aad1d-4492-4903-977e-0800ff5b2d2f';
-
-	let res = http.get(option);
-	/*let res = await rate_limiter(1, 1000, () => {
-		console.log('%s ms - %s', Date.now() - start_time, shop_id);
-		return http.get(option);
-	});*/
-	let text = await readContent(res);
+	//let res = http.get(option);
+	//let text = await readContent(res);
+	let text = await send_request(option);
 
 	if (text.indexOf('商户不存在-大众点评网') >= 0) {
 		return;
@@ -227,19 +258,19 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 	
 	/* TODO 不严格按顺序访问 */
 	for (let i = 1; i <= max_no; i++) {
+		LOG('pageno = ', i);
+
 		let params = querystring.stringify({
 			pageno: i,
 			uuid: 'f82aad1d-4492-4903-977e-0800ff5b2d2f'
 		});
 		option.path = '/shop/' + shop_id + '/' + subpath + '?' + params;
+		//option.headers['User-Agent'] = random_user_agent();
 
-		LOG('pageno = ', i);
-		res = http.get(option);
-		/*res = await rate_limiter(1, 1000, () => {
-			console.log('%s ms - %s', Date.now() - start_time, shop_id);
-			return http.get(option);
-		});*/
-		text = await readContent(res);
+		//res = http.get(option);
+		//text = await readContent(res);
+		text = await send_request(option);
+
 		if (text.length < 10 || text.indexOf('为了您的正常访问，请先输入验证码') >= 0 || text.indexOf('请输入下方图形验证码') >= 0) {
 			LOG(shop_id, 'request 3/4 \x1b[31mblocked\x1b[0m.');
 			return 'blocked';
@@ -279,13 +310,11 @@ async function work(vis, shop_id) {
 			}
 		};
 		option.path = option.path + '/' + shop_id;
+		//option.headers['User-Agent'] = random_user_agent();
 
-		let res = http.get(option);
-		/*let res = await rate_limiter(1, 1000, () => {
-			console.log('%s ms - %s', Date.now() - start_time, shop_id);
-			return http.get(option);
-		});*/
-		let text = await readContent(res);
+		//let res = http.get(option);
+		//let text = await readContent(res);
+		let text = await send_request(option);
 		//console.log(shop_id);
 
 		let st = text.indexOf('window.shop_config=') + 19;
@@ -294,11 +323,10 @@ async function work(vis, shop_id) {
 
 		if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0) {
 			LOG(shop_id, 'request 1 \x1b[31mblocked\x1b[0m.');
-			/* 这个resolve 是异步调用的，所以下面的东西还是可能会被执行*/
 			return reject('blocked');
 		}
 		/* dangerous code */
-		//onsole.log(text);
+		//console.log(text);
 		let tmp_conf;
 		try {
 			tmp_conf = eval('(' + text.substring(st, en) + ')');
@@ -339,13 +367,11 @@ async function work(vis, shop_id) {
 		option.headers['Pragma'] = 'http://www.dianping.com/shop/' + shop_id;
 		option.headers['X-Requested-With'] = 'XMLHttpRequest';
 		option.headers['Upgrade-Insecure-Request'] = null;
+		//option.headers['User-Agent'] = random_user_agent();
 
-		res = http.get(option);
-		/*res = await rate_limiter(1, 1000, () => {
-			console.log('%s ms - %s', Date.now() - start_time, shop_id);
-			return http.get(option);
-		});*/
-		text = await readContent(res);
+		//res = http.get(option);
+		//text = await readContent(res);
+		text = await send_request(option);
 
 		if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0) {
 			LOG(shop_id, 'request 2 \x1b[31mblocked\x1b[0m.');
@@ -399,6 +425,7 @@ async function work(vis, shop_id) {
 			return reject('blocked');
 
 		LOG(shop_id, 'request 4 finished.');
+
 		//console.log(JSON.stringify(shop_config));
 		/* alike atom write */
 		if (!vis.has(shop_id)) {
@@ -412,17 +439,6 @@ async function work(vis, shop_id) {
 	});
 }
 
-function go(vis, buf, buf_lim) {
-	let promises = [];
-	let line;
-	while (line = buf.shift()) {
-		if (!vis.has(line))
-			promises.push(work(vis, line));
-	}
-	LOG(promises);
-	return Promise.all(promises);
-}
-
 (async function() {
 
 	let logWriter = fs.createWriteStream(log_file, { flags: 'a' });
@@ -433,8 +449,7 @@ function go(vis, buf, buf_lim) {
 		input: fs.createReadStream('dianping_id_shuf.txt')
 	});
 
-	let buf = [], lines = [];
-	let buf_lim = 1;
+	let lines = [];
 
 	/* Just put all lines in memory. This makes me feel very sick */
 	rd.on('line', (line) => {
@@ -445,39 +460,18 @@ function go(vis, buf, buf_lim) {
 	rd.on('close', async () => {
 		let line;
 		while (line = lines.shift()) {
-			buf.push(line);
-			if (buf.length >= buf_lim) {
-				let ret;
-				let buf_copy = buf.slice();
-				try {
-					ret = await go(vis, buf, buf_lim);
-					global_rate = GLOBAL_RATE;
-				} catch (e) {
-					if (e === 'blocked') {
-						global_rate *= 2;
-					}
-					LOG(e, 'global_rate = ', global_rate);
-					await timer(global_rate);
-				}
-
-				await timer(Math.random() * (UPPER_BOUND - LOWER_BOUND) + LOWER_BOUND);
-			}
-		}
-
-		while (buf.length > 0) {
 			let ret;
-			let buf_copy = buf.slice();
 			try {
-				ret = await go(vis, buf, buf_lim);
+				ret = await work(vis, line);
 				global_rate = GLOBAL_RATE;
 			} catch (e) {
 				if (e === 'blocked') {
 					global_rate *= 2;
 				}
-				LOG(e, 'global_rate = ', global_rate)
+				LOG(e, 'global_rate = ', global_rate);
 				await timer(global_rate);
 			}
-			
+
 			await timer(Math.random() * (UPPER_BOUND - LOWER_BOUND) + LOWER_BOUND);
 		}
 	});
