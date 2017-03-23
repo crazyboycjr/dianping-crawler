@@ -67,3 +67,11 @@ GET http://www.dianping.com/ajax/json/shopDynamic/reviewAndStar?shopId=17179979&
 GET http://www.dianping.com/shop/17179979/review_all 默认点评
 GET http://www.dianping.com/shop/17179979/review_short 签到短评
 ```
+
+很可惜，暂时还不能拿到纯checkin的信息，如果有方法，欢迎发issue或者私聊
+
+分布式爬虫架构
+
+```
+待完善
+```

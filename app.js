@@ -109,9 +109,6 @@ async function send_request(option) {
 function handle_default_review(text) {
 	let st, en;
 	let reviews = [];
-	if (text.indexOf('<li id="rev') < 0) {
-		console.log(text);
-	}
 	while ((st = text.indexOf('<li id="rev')) >= 0) {
 		let review = {};
 		text = text.substring(st);
@@ -159,9 +156,6 @@ function handle_default_review(text) {
 function handle_checkin_review(text) {
 	let st, en;
 	let reviews = [];
-	if (text.indexOf('<li id="review') < 0) {
-		console.log(text);
-	}
 	while ((st = text.indexOf('<li id="review')) >= 0) {
 		let review = {};
 		text = text.substring(st);
