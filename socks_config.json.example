@@ -1,0 +1,24 @@
+{
+	"master_ip": "123.123.123.123",
+	"master_port": "4080",
+	[
+		{
+			"ipaddress": "123.123.123.123",
+			"port": 10808,
+			"type": 5,
+			"authentication": {
+				"username": "sockd",
+				"password": "b94b087cf11b816a918e5bdff95c6ce5"
+			}
+		},
+		{
+			"ipaddress": "213.213.213.213",
+			"port": 10808,
+			"type": 5,
+			"authentication": {
+				"username": "sockd",
+				"password": "ac014362ad8c36f6ecbfff412bb873a9"
+			}
+		}
+	]
+}
