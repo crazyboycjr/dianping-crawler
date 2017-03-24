@@ -10,9 +10,10 @@ const ua_list = require('./user-agents.json')
 
 var Socks = require('socks');
 
+const input_file = 'dianping_id_shuf.txt';
 const data_file = 'dianping_data.txt';
 const log_file = 'dianping_log.txt';
-const LOG_FILE = 'prog_log.txt'
+const LOG_FILE = 'prog_log.txt';
 
 const prog_log = fs.createWriteStream(LOG_FILE, { flags: 'a' });
 
@@ -38,7 +39,7 @@ function LOG() {
 	prog_log.write(output + '\n');
 }
 
-function readContent(request) {
+function read_content(request) {
 	return new Promise((resolve, reject) => {
 		request.on('response', (res) => {
 			let data = '';
@@ -52,7 +53,7 @@ function readContent(request) {
 	});
 }
 
-function initLog(log_file) {
+function init_log(log_file) {
 	return new Promise((resolve, reject) => {
 		let vis = new Set();
 		let rd = readline.createInterface({
@@ -80,19 +81,93 @@ function initLog(log_file) {
 	});
 }
 
+let proxy_master = {};
+let proxy_cache = [];
+
+function init_socks_config() {
+	let config = require('./socks_config.json');
+	proxy_master = {
+		ip: config.master_ip,
+		port: config.master_port,
+		username: config.master_username,
+		password: config.master_password
+	};
+	proxy_cache = config.proxies;
+	LOG(JSON.stringify(proxy_master));
+}
+
+function init_socks_master() {
+	http.createServer((req, res) => {
+		let header = req.headers['authorization'] || '',
+			token = header.split(/\s+/).pop() || '',
+			auth = new Buffer(token, 'base64').toString(),
+			parts = auth.split(/:/),
+			username = parts[0], password = parts[1];
+
+		LOG('request username = ', username, 'request password = ', password);
+		if (username === proxy_master.username && password === proxy_master.password) {
+			res.writeHead(200, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify(proxy_cache));
+		} else {
+			res.end();
+		}
+	}).listen(proxy_master.port, '0.0.0.0');
+}
+
+function save_config(proxies) {
+	let config = {};
+	config.master_ip = proxy_master.ip;
+	config.master_port = proxy_master.port;
+	config.master_username = proxy_master.username;
+	config.master_password = proxy_master.password;
+	config.proxies = proxies;
+	
+	fs.writeFileSync('socks_config.json', JSON.stringify(config, null, 4));
+}
+
+async function update_socks_config() {
+	let option = {
+		host: proxy_master.ip || '127.0.0.1',
+		port: proxy_master.port,
+		headers: {}
+	};
+
+	let auth = proxy_master.username + ':' + proxy_master.password;
+	auth = new Buffer(auth).toString('base64');
+	option.headers['authorization'] = auth;
+	
+	LOG(option);
+	let req = http.get(option);
+	let config = await read_content(req);
+	config = JSON.parse(config);
+	LOG('update_socks_config: ', JSON.stringify(config)); 
+	
+	save_config(config);
+
+	return proxy_cache = config;
+}
+
+setInterval(() => {
+	update_socks_config();
+}, 30 * 60 * 1000);
+
 function random_user_agent() {
 	return ua_list[Math.floor(Math.random() * ua_list.length)];
 }
 
+async function fetch_socks_config() {
+	//return await update_socks_config();
+	return proxy_cache.length === 0 ? (await update_socks_config()) : proxy_cache;
+}
+
 async function random_socks_agent() {
-	//let proxies = await fetch_socks_config();TODO
-	//let proxy = proxies[Math.floor(Math.random() * proxies.length)];
+	let proxies = await fetch_socks_config();
+	let proxy = Object.assign({}, proxies[Math.floor(Math.random() * proxies.length)]);
+
+	LOG('ipaddress', proxy.ipaddress);
+
 	return new Socks.Agent({
-		proxy: {
-			ipaddress: '127.0.0.1',
-			port: 8087,
-			type: 5
-		}
+		proxy: proxy
 	}, false, false);
 }
 
@@ -101,8 +176,8 @@ async function send_request(option) {
 	option.agent = socks_agent;
 	option.headers['User-Agent'] = random_user_agent();
 
-	let res = http.get(option);
-	let text = await readContent(res);
+	let req = http.get(option);
+	let text = await read_content(req);
 	return text;
 }
 
@@ -211,10 +286,7 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 	option.headers['Host'] = 'www.dianping.com';
 	option.headers['Referer'] = 'http://www.dianping.com/shop/' + shop_id + '/' + subpath;
 	option.headers['Upgrade-insecure-Requests'] = 1;
-	//option.headers['User-Agent'] = random_user_agent();
 
-	//let res = http.get(option);
-	//let text = await readContent(res);
 	let text = await send_request(option);
 
 	if (text.indexOf('商户不存在-大众点评网') >= 0) {
@@ -259,10 +331,7 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 			uuid: 'f82aad1d-4492-4903-977e-0800ff5b2d2f'
 		});
 		option.path = '/shop/' + shop_id + '/' + subpath + '?' + params;
-		//option.headers['User-Agent'] = random_user_agent();
 
-		//res = http.get(option);
-		//text = await readContent(res);
 		text = await send_request(option);
 
 		if (text.length < 10 || text.indexOf('为了您的正常访问，请先输入验证码') >= 0 || text.indexOf('请输入下方图形验证码') >= 0) {
@@ -304,10 +373,7 @@ async function work(vis, shop_id) {
 			}
 		};
 		option.path = option.path + '/' + shop_id;
-		//option.headers['User-Agent'] = random_user_agent();
 
-		//let res = http.get(option);
-		//let text = await readContent(res);
 		let text = await send_request(option);
 		//console.log(shop_id);
 
@@ -361,10 +427,7 @@ async function work(vis, shop_id) {
 		option.headers['Pragma'] = 'http://www.dianping.com/shop/' + shop_id;
 		option.headers['X-Requested-With'] = 'XMLHttpRequest';
 		option.headers['Upgrade-Insecure-Request'] = null;
-		//option.headers['User-Agent'] = random_user_agent();
 
-		//res = http.get(option);
-		//text = await readContent(res);
 		text = await send_request(option);
 
 		if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0) {
@@ -434,13 +497,16 @@ async function work(vis, shop_id) {
 }
 
 (async function() {
+	
+	init_socks_config();
+	init_socks_master();
 
-	let logWriter = fs.createWriteStream(log_file, { flags: 'a' });
-	let vis = await initLog(log_file);
-	logWriter.end();
+	let log_writer = fs.createWriteStream(log_file, { flags: 'a' });
+	log_writer.end();
+	let vis = await init_log(log_file);
 
 	let rd = readline.createInterface({
-		input: fs.createReadStream('dianping_id_shuf.txt')
+		input: fs.createReadStream(input_file)
 	});
 
 	let lines = [];
