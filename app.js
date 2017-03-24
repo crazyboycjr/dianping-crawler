@@ -151,7 +151,7 @@ async function update_socks_config() {
 
 setInterval(() => {
 	update_socks_config();
-}, 30 * 60 * 1000);
+}, 60 * 1000);
 
 function random_user_agent() {
 	return ua_list[Math.floor(Math.random() * ua_list.length)];
