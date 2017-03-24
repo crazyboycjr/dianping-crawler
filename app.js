@@ -321,6 +321,8 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 			if (++fail_times > 5)
 				return 'blocked';
 		} else {
+			ipset.delete(last_ip);
+			iprate.delete(last_ip);
 			break;
 		}
 	}
@@ -371,6 +373,8 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 				if (++fail_times > 5)
 					return 'blocked';
 			} else {
+				ipset.delete(last_ip);
+				iprate.delete(last_ip);
 				break;
 			}
 		}
@@ -421,6 +425,8 @@ async function work(vis, shop_id) {
 				if (++fail_times > 5)
 					return reject('blocked');
 			} else {
+				ipset.delete(last_ip);
+				iprate.delete(last_ip);
 				break;
 			}
 		}
@@ -482,6 +488,8 @@ async function work(vis, shop_id) {
 				if (++fail_times > 5)
 					return reject('blocked');
 			} else {
+				ipset.delete(last_ip);
+				iprate.delete(last_ip);
 				break;
 			}
 		}
