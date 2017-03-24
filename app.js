@@ -81,6 +81,8 @@ function init_log(log_file) {
 	});
 }
 
+let ipset = new Map();
+let iprate = new Map();
 let proxy_master = {};
 let proxy_cache = [];
 
@@ -162,7 +164,17 @@ async function fetch_socks_config() {
 
 async function random_socks_agent() {
 	let proxies = await fetch_socks_config();
-	let proxy = Object.assign({}, proxies[Math.floor(Math.random() * proxies.length)]);
+	let proxy, rid, ip;
+	while (1) {
+		rid = Math.floor(Math.random() * proxies.length);
+		ip = proxies[rid].ipaddress;
+		if (!(ipset.has(ip) && (Date.now() - ipset.get(ip)) < iprate.get(ip))) {
+			break;
+		} else {
+			LOG('randoming socks ip = ', ip, 'last use = ', ipset.get(ip), 'last rate = ', iprate.get(ip));
+		}
+	}
+	proxy = Object.assign({}, proxies[rid]);
 
 	LOG('ipaddress', proxy.ipaddress);
 
@@ -178,7 +190,7 @@ async function send_request(option) {
 
 	let req = http.get(option);
 	let text = await read_content(req);
-	return text;
+	return [text, socks_agent.options.proxy.ipaddress];
 }
 
 function handle_default_review(text) {
@@ -280,6 +292,15 @@ function handle_checkin_review(text) {
 	return reviews;
 }
 
+function update_iprate(last_ip) {
+	ipset.set(last_ip, Date.now());
+	if (iprate.has(last_ip))
+		iprate.set(last_ip, iprate.get(last_ip) * 2);
+	else
+		iprate.set(last_ip, GLOBAL_RATE);
+	LOG('update_iprate last_ip = ', last_ip, 'last use = ', ipset.get(last_ip), 'last rate = ', iprate.get(last_ip));
+}
+
 async function save_review(shop_id, option, review_type, subpath, handler, shop_config) {
 	option.path = '/shop/' + shop_id + '/' + subpath;
 	option.headers['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8';
@@ -287,15 +308,23 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 	option.headers['Referer'] = 'http://www.dianping.com/shop/' + shop_id + '/' + subpath;
 	option.headers['Upgrade-insecure-Requests'] = 1;
 
-	let text = await send_request(option);
+	let text, last_ip, fail_times = 0;
+	while (1) {
+		[text, last_ip] = await send_request(option);
 
-	if (text.indexOf('商户不存在-大众点评网') >= 0) {
-		return;
+		if (text.indexOf('商户不存在-大众点评网') >= 0) {
+			return;
+		}
+		if (text.lengh < 10 || text.indexOf('为了您的正常访问，请先输入验证码') >= 0 || text.indexOf('请输入下方图形验证码') >= 0) {
+			LOG(shop_id, 'last_ip = ', last_ip, 'request 3/4 \x1b[31mblocked\x1b[0m.');
+			update_iprate(last_ip);
+			if (++fail_times > 5)
+				return 'blocked';
+		} else {
+			break;
+		}
 	}
-	if (text.lengh < 10 || text.indexOf('为了您的正常访问，请先输入验证码') >= 0 || text.indexOf('请输入下方图形验证码') >= 0) {
-		LOG(shop_id, 'request 3/4 \x1b[31mblocked\x1b[0m.');
-		return 'blocked';
-	}
+
 	let st, en;
 	st = text.indexOf('<div class="Pages">');
 
@@ -332,11 +361,18 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 		});
 		option.path = '/shop/' + shop_id + '/' + subpath + '?' + params;
 
-		text = await send_request(option);
+		fail_times = 0;
+		while (1) {
+			[text, last_ip] = await send_request(option);
 
-		if (text.length < 10 || text.indexOf('为了您的正常访问，请先输入验证码') >= 0 || text.indexOf('请输入下方图形验证码') >= 0) {
-			LOG(shop_id, 'request 3/4 \x1b[31mblocked\x1b[0m.');
-			return 'blocked';
+			if (text.length < 10 || text.indexOf('为了您的正常访问，请先输入验证码') >= 0 || text.indexOf('请输入下方图形验证码') >= 0) {
+				LOG(shop_id, 'last_ip = ', last_ip, 'request 3/4 \x1b[31mblocked\x1b[0m.');
+				update_iprate(last_ip);
+				if (++fail_times > 5)
+					return 'blocked';
+			} else {
+				break;
+			}
 		}
 
 		shop_config[review_type]['review_info'] = shop_config[review_type]['review_info'].concat(handler(text));
@@ -374,17 +410,25 @@ async function work(vis, shop_id) {
 		};
 		option.path = option.path + '/' + shop_id;
 
-		let text = await send_request(option);
-		//console.log(shop_id);
+		let text, last_ip, fail_times = 0;
+		while (1) {
+			[text, last_ip] = await send_request(option);
+			//console.log(shop_id);
+
+			if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0) {
+				LOG(shop_id, 'last_ip = ', last_ip, 'request 1 \x1b[31mblocked\x1b[0m.');
+				update_iprate(last_ip);
+				if (++fail_times > 5)
+					return reject('blocked');
+			} else {
+				break;
+			}
+		}
 
 		let st = text.indexOf('window.shop_config=') + 19;
 		let en = text.substring(st).indexOf('</script>') + st;
 		//console.log(text.substring(st, en));
 
-		if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0) {
-			LOG(shop_id, 'request 1 \x1b[31mblocked\x1b[0m.');
-			return reject('blocked');
-		}
 		/* dangerous code */
 		//console.log(text);
 		let tmp_conf;
@@ -428,12 +472,20 @@ async function work(vis, shop_id) {
 		option.headers['X-Requested-With'] = 'XMLHttpRequest';
 		option.headers['Upgrade-Insecure-Request'] = null;
 
-		text = await send_request(option);
+		fail_times = 0;
+		while (1) {
+			[text, last_ip] = await send_request(option);
 
-		if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0) {
-			LOG(shop_id, 'request 2 \x1b[31mblocked\x1b[0m.');
-			return reject('blocked');
+			if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0) {
+				LOG(shop_id, 'last_ip = ', last_ip, 'request 2 \x1b[31mblocked\x1b[0m.');
+				update_iprate(last_ip);
+				if (++fail_times > 5)
+					return reject('blocked');
+			} else {
+				break;
+			}
 		}
+
 		tmp_conf = JSON.parse(text);
 		//console.log(tmp_conf);
 
