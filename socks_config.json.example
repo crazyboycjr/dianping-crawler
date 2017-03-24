@@ -1,7 +1,9 @@
 {
 	"master_ip": "123.123.123.123",
 	"master_port": "4080",
-	[
+	"master_username": "username",
+	"master_password": "password"
+	"proxies": [
 		{
 			"ipaddress": "123.123.123.123",
 			"port": 10808,
