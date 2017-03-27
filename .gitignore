@@ -7,3 +7,4 @@ prog_log.txt
 error_id.txt
 node_modules/
 socks_config.json
+http_proxy.json
