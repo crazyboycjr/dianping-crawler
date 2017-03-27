@@ -400,7 +400,11 @@ async function work(vis, shop_id) {
 			}
 		}
 
-		tmp_conf = JSON.parse(text);
+		try {
+			tmp_conf = JSON.parse(text);
+		} catch (e) {
+			return reject(e);
+		}
 		//console.log(tmp_conf);
 
 		Object.assign(shop_config, {
