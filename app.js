@@ -6,6 +6,7 @@ const querystring = require('querystring');
 const readline = require('readline');
 const util = require('util');
 const assert = require('assert');
+const url = require('url');
 const ua_list = require('./user-agents.json')
 
 var Socks = require('socks');
@@ -17,17 +18,17 @@ const LOG_FILE = 'prog_log.txt';
 
 const prog_log = fs.createWriteStream(LOG_FILE, { flags: 'a' });
 
-const GLOBAL_RATE = 10 * 1000;
+const GLOBAL_RATE = 10 * 100;
 var global_rate = GLOBAL_RATE; // 10s
 
-const UPPER_BOUND = 2 * 1000; // 2s
-const LOWER_BOUND = 5 * 1000; // 5s
+const UPPER_BOUND = 2 * 100; // 2s
+const LOWER_BOUND = 5 * 100; // 5s
 
 let timer = (timeout) => {
 	return new Promise((resolve, reject) => {
 		setTimeout(() => {
 			resolve('timeout');
-		}, timeout);
+		}, timeout * 0);
 	});
 }
 
@@ -81,116 +82,40 @@ function init_log(log_file) {
 	});
 }
 
-let ipset = new Map();
-let iprate = new Map();
-let proxy_master = {};
-let proxy_cache = [];
-
-function init_socks_config() {
-	let config = require('./socks_config.json');
-	proxy_master = {
-		ip: config.master_ip,
-		port: config.master_port,
-		username: config.master_username,
-		password: config.master_password
-	};
-	proxy_cache = config.proxies;
-	LOG(JSON.stringify(proxy_master));
-}
-
-function init_socks_master() {
-	http.createServer((req, res) => {
-		let header = req.headers['authorization'] || '',
-			token = header.split(/\s+/).pop() || '',
-			auth = new Buffer(token, 'base64').toString(),
-			parts = auth.split(/:/),
-			username = parts[0], password = parts[1];
-
-		LOG('request username = ', username, 'request password = ', password);
-		if (username === proxy_master.username && password === proxy_master.password) {
-			res.writeHead(200, { 'Content-Type': 'application/json' });
-			res.end(JSON.stringify(proxy_cache));
-		} else {
-			res.end();
-		}
-	}).listen(proxy_master.port, '0.0.0.0');
-}
-
-function save_config(proxies) {
-	let config = {};
-	config.master_ip = proxy_master.ip;
-	config.master_port = proxy_master.port;
-	config.master_username = proxy_master.username;
-	config.master_password = proxy_master.password;
-	config.proxies = proxies;
-	
-	fs.writeFileSync('socks_config.json', JSON.stringify(config, null, 4));
-}
-
-async function update_socks_config() {
-	let option = {
-		host: proxy_master.ip || '127.0.0.1',
-		port: proxy_master.port,
-		headers: {}
-	};
-
-	let auth = proxy_master.username + ':' + proxy_master.password;
-	auth = new Buffer(auth).toString('base64');
-	option.headers['authorization'] = auth;
-	
-	LOG(option);
-	let req = http.get(option);
-	let config = await read_content(req);
-	config = JSON.parse(config);
-	LOG('update_socks_config: ', JSON.stringify(config)); 
-	
-	save_config(config);
-
-	return proxy_cache = config;
-}
-
-setInterval(() => {
-	update_socks_config();
-}, 60 * 1000);
-
 function random_user_agent() {
 	return ua_list[Math.floor(Math.random() * ua_list.length)];
 }
 
-async function fetch_socks_config() {
-	//return await update_socks_config();
-	return proxy_cache.length === 0 ? (await update_socks_config()) : proxy_cache;
-}
+/* abuyun.com */
+const proxy_host = 'proxy.abuyun.com';
+const proxy_port = '9020';
 
-async function random_socks_agent() {
-	let proxies = await fetch_socks_config();
-	let proxy, rid, ip;
-	while (1) {
-		rid = Math.floor(Math.random() * proxies.length);
-		ip = proxies[rid].ipaddress;
-		if (!(ipset.has(ip) && (Date.now() - ipset.get(ip)) < iprate.get(ip))) {
-			break;
-		} else {
-			LOG('randoming socks ip = ', ip, 'last use = ', ipset.get(ip), 'last rate = ', iprate.get(ip));
-		}
-	}
-	proxy = Object.assign({}, proxies[rid]);
+var proxy_user = 'HG8073W66E7Y04ED';
+var proxy_pass = '8E2E7520FDFFB5BA';
 
-	LOG('ipaddress', proxy.ipaddress);
+var proxy_pass_base64 = new Buffer(proxy_user + ':' + proxy_pass).toString('base64');
 
-	return new Socks.Agent({
-		proxy: proxy
-	}, false, false);
+function read_proxy_config() {
+	let config = require('./http_proxy.json');
+	proxy_user = config['proxy_user'];
+	proxy_pass = config['proxy_pass'];
+	proxy_pass_base64 = new Buffer(proxy_user + ':' + proxy_pass).toString('base64');
 }
 
 async function send_request(option) {
-	let socks_agent = await random_socks_agent();
-	option.agent = socks_agent;
+
+	option['path'] = 'http://' + option.host + option.path
+	option.host = proxy_host;
+	option.port = proxy_port;
+	option.headers['Host'] = url.parse(option.path).hostname;
+	option.headers['Proxy-Authorization'] = 'Basic ' + proxy_pass_base64;
 	option.headers['User-Agent'] = random_user_agent();
+	//LOG(option);
 
 	let req = http.get(option);
 	let text = await read_content(req);
-	return [text, socks_agent.options.proxy.ipaddress];
+	return [text, '0.0.0.0'];
+	//return [text, socks_agent.options.proxy.ipaddress];
 }
 
 function handle_default_review(text) {
@@ -292,16 +217,8 @@ function handle_checkin_review(text) {
 	return reviews;
 }
 
-function update_iprate(last_ip) {
-	ipset.set(last_ip, Date.now());
-	if (iprate.has(last_ip))
-		iprate.set(last_ip, iprate.get(last_ip) * 2);
-	else
-		iprate.set(last_ip, GLOBAL_RATE);
-	LOG('update_iprate last_ip = ', last_ip, 'last use = ', ipset.get(last_ip), 'last rate = ', iprate.get(last_ip));
-}
-
 async function save_review(shop_id, option, review_type, subpath, handler, shop_config) {
+	option.host = 'www.dianping.com';
 	option.path = '/shop/' + shop_id + '/' + subpath;
 	option.headers['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8';
 	option.headers['Host'] = 'www.dianping.com';
@@ -317,12 +234,9 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 		}
 		if (text.lengh < 10 || text.indexOf('为了您的正常访问，请先输入验证码') >= 0 || text.indexOf('请输入下方图形验证码') >= 0) {
 			LOG(shop_id, 'last_ip = ', last_ip, 'request 3/4 \x1b[31mblocked\x1b[0m.');
-			update_iprate(last_ip);
 			if (++fail_times > 5)
 				return 'blocked';
 		} else {
-			ipset.delete(last_ip);
-			iprate.delete(last_ip);
 			break;
 		}
 	}
@@ -361,6 +275,7 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 			pageno: i,
 			uuid: 'f82aad1d-4492-4903-977e-0800ff5b2d2f'
 		});
+		option.host = 'www.dianping.com';
 		option.path = '/shop/' + shop_id + '/' + subpath + '?' + params;
 
 		fail_times = 0;
@@ -369,12 +284,9 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 
 			if (text.length < 10 || text.indexOf('为了您的正常访问，请先输入验证码') >= 0 || text.indexOf('请输入下方图形验证码') >= 0) {
 				LOG(shop_id, 'last_ip = ', last_ip, 'request 3/4 \x1b[31mblocked\x1b[0m.');
-				update_iprate(last_ip);
 				if (++fail_times > 5)
 					return 'blocked';
 			} else {
-				ipset.delete(last_ip);
-				iprate.delete(last_ip);
 				break;
 			}
 		}
@@ -421,12 +333,9 @@ async function work(vis, shop_id) {
 
 			if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0) {
 				LOG(shop_id, 'last_ip = ', last_ip, 'request 1 \x1b[31mblocked\x1b[0m.');
-				update_iprate(last_ip);
 				if (++fail_times > 5)
 					return reject('blocked');
 			} else {
-				ipset.delete(last_ip);
-				iprate.delete(last_ip);
 				break;
 			}
 		}
@@ -440,7 +349,6 @@ async function work(vis, shop_id) {
 		let tmp_conf;
 		try {
 			tmp_conf = eval('(' + text.substring(st, en) + ')');
-			//console.log(tmp_conf);
 		} catch (e) {
 			return reject(e);
 		}
@@ -466,6 +374,7 @@ async function work(vis, shop_id) {
 		await timer(Math.random() * (UPPER_BOUND - LOWER_BOUND) + LOWER_BOUND);
 		/* request 2 */
 		LOG(shop_id, 'sending request 2...');
+		option.host = 'www.dianping.com';
 		option.path = '/ajax/json/shopDynamic/reviewAndStar';
 		let params = querystring.stringify({
 			shopId: shop_id,
@@ -484,12 +393,9 @@ async function work(vis, shop_id) {
 
 			if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0) {
 				LOG(shop_id, 'last_ip = ', last_ip, 'request 2 \x1b[31mblocked\x1b[0m.');
-				update_iprate(last_ip);
 				if (++fail_times > 5)
 					return reject('blocked');
 			} else {
-				ipset.delete(last_ip);
-				iprate.delete(last_ip);
 				break;
 			}
 		}
@@ -557,9 +463,8 @@ async function work(vis, shop_id) {
 }
 
 (async function() {
-	
-	init_socks_config();
-	init_socks_master();
+
+	read_proxy_config();
 
 	let log_writer = fs.createWriteStream(log_file, { flags: 'a' });
 	log_writer.end();
