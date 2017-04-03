@@ -104,13 +104,12 @@ function read_proxy_config() {
 
 async function send_request(option) {
 
-	/*
 	option['path'] = 'http://' + option.host + option.path
 	option.host = proxy_host;
 	option.port = proxy_port;
 	option.headers['Host'] = url.parse(option.path).hostname;
 	option.headers['Proxy-Authorization'] = 'Basic ' + proxy_pass_base64;
-	*/
+
 	option.headers['User-Agent'] = random_user_agent();
 	//LOG(option);
 
@@ -138,9 +137,34 @@ function handle_page_ids(text) {
 	return Array.from(new Set(ids)); //unique
 }
 
+function work2(option, url, page_no, handler) {
+	return new Promise(async (resolve, reject) => {
+		let ids = [];
+		option.host = 'www.dianping.com';
+		option.path = '/' + url.split('/').slice(1).join('/') + 'p' + String(page_no);
+		LOG(option.path);
+
+		let text, fail_times = 0;
+		while (1) {
+			text = await send_request(option);
+
+			if (text.length < 10 || text.indexOf('为了您的正常访问，请先输入验证码') >= 0 || text.indexOf('请输入下方图形验证码') >= 0) {
+				LOG(url, 'request 1 \x1b[31mblocked\x1b[0m.');
+				if (++fail_times > 10)
+					return 'blocked';
+			} else {
+				break;
+			}
+		}
+
+		ids = handler(text);
+		resolve(ids);
+	});
+}
+
 async function save_ids(url, option, handler) {
 
-	let text, fail_times = 0;
+	let text;
 	while (1) {
 		text = await send_request(option);
 
@@ -178,31 +202,26 @@ async function save_ids(url, option, handler) {
 	}
 	LOG(url, 'page max_no = ', max_no);
 	
-	/* TODO 不严格按顺序访问 */
+	let promises = [];
 	for (let i = 2; i <= max_no; i++) {
 		LOG('pageno = ', i);
 
-		option.host = 'www.dianping.com';
-		option.path = '/' + url.split('/').slice(1).join('/') + 'p' + String(i);
-		LOG(option.path);
+		let tmp_option = Object.assign({}, option);
+		promises.push(work2(tmp_option, url, i, handler));
 
-		fail_times = 0;
-		while (1) {
-			text = await send_request(option);
+		if (i % 10 === 0) {
+			let tmp_ids = await Promise.all(promises);
 
-			if (text.length < 10 || text.indexOf('为了您的正常访问，请先输入验证码') >= 0 || text.indexOf('请输入下方图形验证码') >= 0) {
-				LOG(url, 'request 1 \x1b[31mblocked\x1b[0m.');
-				if (++fail_times > 10)
-					return 'blocked';
-			} else {
-				break;
-			}
+			for (let id_arr of tmp_ids)
+				ids = ids.concat(id_arr);
+
+			await timer(Math.random() * (UPPER_BOUND - LOWER_BOUND) + LOWER_BOUND);
 		}
-
-		ids = ids.concat(handler(text));
-
-		await timer(Math.random() * (UPPER_BOUND - LOWER_BOUND) + LOWER_BOUND);
 	}
+	let tmp_ids = await Promise.all(promises);
+
+	for (let id_arr of tmp_ids)
+		ids = ids.concat(id_arr);
 
 	return Array.from(new Set(ids)); //unique
 }
@@ -235,6 +254,7 @@ async function work(vis, url) {
 
 		let ids = await save_ids(url, option, handle_page_ids);
 
+		LOG(ids);
 		LOG(url, 'request 1 finished.');
 
 		/* alike atom write */
