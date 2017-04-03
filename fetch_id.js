@@ -254,7 +254,6 @@ async function work(vis, url) {
 
 		let ids = await save_ids(url, option, handle_page_ids);
 
-		LOG(ids);
 		LOG(url, 'request 1 finished.');
 
 		/* alike atom write */
