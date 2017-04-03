@@ -8,3 +8,7 @@ error_id.txt
 node_modules/
 socks_config.json
 http_proxy.json
+dianping_id_log.txt
+dianping_id_res.txt
+dianping_url.txt
+fetch_id_prog_log.txt
