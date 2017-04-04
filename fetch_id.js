@@ -22,6 +22,8 @@ var global_rate = GLOBAL_RATE; // 1.0s
 const UPPER_BOUND = 2 * 100; // 0.2s
 const LOWER_BOUND = 5 * 100; // 0.5s
 
+const REQ_TIMEOUT = 2 * 1000; // 2s
+
 const CONCURRENT_NUM = 10;
 
 let timer = (timeout) => {
@@ -50,7 +52,7 @@ function read_content(request) {
 				resolve(data.toString());
 			});
 			res.on('error', err => reject(err));
-		});
+		}).on('error', err => reject(err));
 	});
 }
 
@@ -104,6 +106,8 @@ function read_proxy_config() {
 
 async function send_request(option) {
 
+	let tmp_option = Object.assign({}, option);
+
 	option['path'] = 'http://' + option.host + option.path
 	option.host = proxy_host;
 	option.port = proxy_port;
@@ -114,7 +118,17 @@ async function send_request(option) {
 	//LOG(option);
 
 	let req = http.get(option);
-	let text = await read_content(req);
+	req.setTimeout(REQ_TIMEOUT, () => {
+		LOG('socket \x1b[31mtimeout\x1b[0m', option.path);
+		req.abort();
+	});
+	let text;
+	try {
+		text = await read_content(req);
+	} catch (_) {
+		LOG('resending request', tmp_option.path);
+		return await send_request(tmp_option); 
+	}
 	return text;
 }
 
