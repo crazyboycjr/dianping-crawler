@@ -403,7 +403,9 @@ async function work(vis, shop_id) {
 			main_category_id: tmp_conf['mainCategoryId'],
 			category_name: tmp_conf['categoryName'],
 			main_region_id: tmp_conf['mainRegionId'],
-			shop_power: tmp_conf['shopPower']
+			shop_power: tmp_conf['shopPower'],
+			shop_group_id: tmp_conf['shopGroupId'],
+			district: tmp_conf['district']
 		});
 
 		LOG(shop_id, 'request 1 finished.');
