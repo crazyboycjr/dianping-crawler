@@ -19,10 +19,14 @@ const LOG_FILE = 'prog_log.txt';
 const prog_log = fs.createWriteStream(LOG_FILE, { flags: 'a' });
 
 const GLOBAL_RATE = 10 * 100;
-var global_rate = GLOBAL_RATE; // 10s
+var global_rate = GLOBAL_RATE; // 1.0s
 
-const UPPER_BOUND = 2 * 100; // 2s
-const LOWER_BOUND = 5 * 100; // 5s
+const UPPER_BOUND = 2 * 100; // 0.2s
+const LOWER_BOUND = 5 * 100; // 0.5s
+
+const REQ_TIMEOUT = 2 * 1000; // 2s
+
+const CONCURRENCY_NUM = 10;
 
 let timer = (timeout) => {
 	return new Promise((resolve, reject) => {
@@ -50,7 +54,7 @@ function read_content(request) {
 				resolve(data.toString());
 			});
 			res.on('error', err => reject(err));
-		});
+		}).on('error', err => reject(err));
 	});
 }
 
@@ -104,18 +108,30 @@ function read_proxy_config() {
 
 async function send_request(option) {
 
+	let tmp_option = Object.assign({}, option);
+
 	option['path'] = 'http://' + option.host + option.path
 	option.host = proxy_host;
 	option.port = proxy_port;
 	option.headers['Host'] = url.parse(option.path).hostname;
 	option.headers['Proxy-Authorization'] = 'Basic ' + proxy_pass_base64;
+
 	option.headers['User-Agent'] = random_user_agent();
 	//LOG(option);
 
 	let req = http.get(option);
-	let text = await read_content(req);
-	return [text, '0.0.0.0'];
-	//return [text, socks_agent.options.proxy.ipaddress];
+	req.setTimeout(REQ_TIMEOUT, () => {
+		LOG('socket \x1b[31mtimeout\x1b[0m', option.path);
+		req.abort();
+	});
+	let text;
+	try {
+		text = await read_content(req);
+	} catch (_) {
+		LOG('resending request', tmp_option.path);
+		return await send_request(tmp_option); 
+	}
+	return text;
 }
 
 function handle_default_review(text) {
@@ -217,6 +233,33 @@ function handle_checkin_review(text) {
 	return reviews;
 }
 
+function sub_save_reviews(option, shop_id, page_no, subpath, handler) {
+	return new Promise(async (resolve, reject) => {
+		let reviews = [];
+		let params = querystring.stringify({
+			pageno: page_no
+		});
+		option.host = 'www.dianping.com';
+		option.path = '/shop/' + shop_id + '/' + subpath + '?' + params;
+
+		let text, fail_times = 0;
+		while (1) {
+			text = await send_request(option);
+
+			if (text.length < 10 || text.indexOf('为了您的正常访问，请先输入验证码') >= 0 || text.indexOf('请输入下方图形验证码') >= 0) {
+				LOG(shop_id, 'request 3/4 \x1b[31mblocked\x1b[0m.');
+				if (++fail_times > 10)
+					return 'blocked';
+			} else {
+				break;
+			}
+		}
+
+		reviews = handler(text);
+		resolve(reviews);
+	});
+}
+
 async function save_review(shop_id, option, review_type, subpath, handler, shop_config) {
 	option.host = 'www.dianping.com';
 	option.path = '/shop/' + shop_id + '/' + subpath;
@@ -225,16 +268,16 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 	option.headers['Referer'] = 'http://www.dianping.com/shop/' + shop_id + '/' + subpath;
 	option.headers['Upgrade-insecure-Requests'] = 1;
 
-	let text, last_ip, fail_times = 0;
+	let text, fail_times = 0;
 	while (1) {
-		[text, last_ip] = await send_request(option);
+		text = await send_request(option);
 
 		if (text.indexOf('商户不存在-大众点评网') >= 0) {
 			return;
 		}
 		if (text.lengh < 10 || text.indexOf('为了您的正常访问，请先输入验证码') >= 0 || text.indexOf('请输入下方图形验证码') >= 0) {
-			LOG(shop_id, 'last_ip = ', last_ip, 'request 3/4 \x1b[31mblocked\x1b[0m.');
-			if (++fail_times > 5)
+			LOG(shop_id, 'request 3/4 \x1b[31mblocked\x1b[0m.');
+			if (++fail_times > 10)
 				return 'blocked';
 		} else {
 			break;
@@ -267,34 +310,29 @@ async function save_review(shop_id, option, review_type, subpath, handler, shop_
 	}
 	LOG(shop_id, 'page max_no = ', max_no);
 	
-	/* TODO 不严格按顺序访问 */
-	for (let i = 1; i <= max_no; i++) {
+	let promises = [];
+	for (let i = 2; i <= max_no; i++) {
 		LOG('pageno = ', i);
 
-		let params = querystring.stringify({
-			pageno: i,
-			uuid: 'f82aad1d-4492-4903-977e-0800ff5b2d2f'
-		});
-		option.host = 'www.dianping.com';
-		option.path = '/shop/' + shop_id + '/' + subpath + '?' + params;
+		let tmp_option = Object.assign({}, option);
+		promises.push(sub_save_reviews(tmp_option, shop_id, i, subpath, handler));
 
-		fail_times = 0;
-		while (1) {
-			[text, last_ip] = await send_request(option);
+		if (i % CONCURRENCY_NUM === 0) {
+			let tmp_reviews = await Promise.all(promises);
 
-			if (text.length < 10 || text.indexOf('为了您的正常访问，请先输入验证码') >= 0 || text.indexOf('请输入下方图形验证码') >= 0) {
-				LOG(shop_id, 'last_ip = ', last_ip, 'request 3/4 \x1b[31mblocked\x1b[0m.');
-				if (++fail_times > 5)
-					return 'blocked';
-			} else {
-				break;
+			for (let review_arr of tmp_reviews) {
+				shop_config[review_type]['review_info'] = shop_config[review_type]['review_info'].concat(review_arr);
+				shop_config[review_type]['review_number'] = shop_config[review_type]['review_info'].length;
 			}
+
+			promises = [];
 		}
+	}
 
-		shop_config[review_type]['review_info'] = shop_config[review_type]['review_info'].concat(handler(text));
+	let tmp_reviews = await Promise.all(promises);
+	for (let review_arr of tmp_reviews) {
+		shop_config[review_type]['review_info'] = shop_config[review_type]['review_info'].concat(review_arr);
 		shop_config[review_type]['review_number'] = shop_config[review_type]['review_info'].length;
-
-		await timer(Math.random() * (UPPER_BOUND - LOWER_BOUND) + LOWER_BOUND);
 	}
 }
 
@@ -320,19 +358,19 @@ async function work(vis, shop_id) {
 				'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36',
 				'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
 				'Referer': 'http://www.dianping.com/search/category',
-				//'Accept-Encoding': 'gzip, deflate, sdch',
+				//'Accept-Encoding': 'gzip, deflate, sdch', //Nodejs http server only accept gzip and deflate
 				'Accept-Language': 'zh-CN,zh;q=0.8'
 			}
 		};
 		option.path = option.path + '/' + shop_id;
 
-		let text, last_ip, fail_times = 0;
+		let text, fail_times = 0;
 		while (1) {
-			[text, last_ip] = await send_request(option);
+			text = await send_request(option);
 			//console.log(shop_id);
 
 			if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0) {
-				LOG(shop_id, 'last_ip = ', last_ip, 'request 1 \x1b[31mblocked\x1b[0m.');
+				LOG(shop_id, 'request 1 \x1b[31mblocked\x1b[0m.');
 				if (++fail_times > 5)
 					return reject('blocked');
 			} else {
@@ -389,11 +427,11 @@ async function work(vis, shop_id) {
 
 		fail_times = 0;
 		while (1) {
-			[text, last_ip] = await send_request(option);
+			text = await send_request(option);
 
 			if (text.indexOf('为了您的正常访问，请先输入验证码') >= 0) {
-				LOG(shop_id, 'last_ip = ', last_ip, 'request 2 \x1b[31mblocked\x1b[0m.');
-				if (++fail_times > 5)
+				LOG(shop_id, 'request 2 \x1b[31mblocked\x1b[0m.');
+				if (++fail_times > 10)
 					return reject('blocked');
 			} else {
 				break;
