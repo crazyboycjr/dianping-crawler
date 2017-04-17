@@ -8,10 +8,11 @@ const util = require('util');
 const assert = require('assert');
 const url = require('url');
 const path = require('path');
-const ua_list = require('./user-agents.json');
 
-var proxy = require('./lib/proxy')(path.join(__dirname, 'http_proxy.json'));
-var dcrawl = require('./lib/dcrawl')(path.join(__dirname, 'dcrawl_config.json'));
+var proxy = require('./lib/proxy')
+	(path.join(__dirname, 'http_proxy.json'));
+var dcrawl = require('./lib/dcrawl')
+	(path.join(__dirname, 'dcrawl_config.json'));
 var Util = require('./lib/util');
 var dh = require('./lib/data_handle');
 
@@ -32,14 +33,6 @@ const LOWER_BOUND = 5 * 100; // 0.5s
 const REQ_TIMEOUT = 2 * 1000; // 2s
 
 const CONCURRENCY_NUM = 10;
-
-let timer = (timeout) => {
-	return new Promise((resolve, reject) => {
-		setTimeout(() => {
-			resolve('timeout');
-		}, timeout * 0);
-	});
-}
 
 function init_log(log_file) {
 	return new Promise((resolve, reject) => {
@@ -136,7 +129,19 @@ async function work(vis, shop_id) {
 			fs.appendFileSync(log_file, 'done ' + shop_id + '\n');
 			LOG(shop_id, 'save \x1b[32mfinished\x1b[0m.');
 		}
-		resolve();
+		resolve('success');
+	});
+}
+
+function resolve_wrapper(fn) {
+	return new Promise(async (resolve, reject) => {
+		let ret;
+		try {
+			ret = await fn();
+		} catch (e) {
+			return resolve(e);
+		}
+		resolve(ret);
 	});
 }
 
@@ -160,7 +165,9 @@ async function work(vis, shop_id) {
 	
 	rd.on('close', async () => {
 		let line;
+		let promises = [];
 		while (line = lines.shift()) {
+			/*
 			let ret;
 			try {
 				ret = await work(vis, line);
@@ -170,7 +177,14 @@ async function work(vis, shop_id) {
 					global_rate *= 2;
 				}
 				LOG(e, 'global_rate = ', global_rate);
-				await timer(global_rate);
+			}
+			*/
+			promises.push(resolve_wrapper(() => {
+				return work(vis, line);
+			}));
+			if (promises.length >= 10) {
+				console.log(await Promise.all(promises));
+				promises = [];
 			}
 		}
 	});
