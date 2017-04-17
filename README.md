@@ -3,60 +3,66 @@
 点评数据格式
 ```json
 {
-	"shop_id": "17179979",
-	"shop_name": "名城煲王 • 明星粤菜馆",
-	"address": "延安中路802号",
-	"lat": "31.224281",
-	"lng": "121.459262", 
-	"city_id": "1",
-	"city_name": "上海",
-	"main_category_name": "粤菜馆",
-	"category_name": "美食",
-	
-	"rating": 4.5,
-	"avg_price": 197,
-	"default_review_count": 2993,
-	"total_review_count": 3006
-	"rating": {
-		"口味": 8.7,
-		"环境": 7.8,
-		"服务": 7.8
-	},
-	"default_reviews": {
-		"review_number": 2737,
-		"review_info": [
-			{
-				"user_id": "22845919",
-				"date": "03-05",
-				"content": "首先点评一下服务",
-				"photo_number": 0,
-				"rating": [3, 3, 4]
-			}
-		]
-	},
-	"checkin_reviews": {
-		"review_number": 8,
-		"review_info": [
-			{
-				"user_id": "22845919",
-				"check_in": "15-04-24 16:16",
-				"content": "一般般吧",
-				"photo_number": 1,
-				"star": 3
-			}
-		]
-	},
-
-	"all_reviews": {
-		"default_numbers": 3006,
-		"all_star": {
-			"star_1": 72,
-			"star_2": 87,
-			"star_3": 342,
-			"star_4": 1114,
-			"star_5": 1380
-		}
-	}
+  "shop_id": 21316992,
+  "shop_name": "很高兴遇见你",
+  "address": "邯郸路600号万达商业广场特力时尚汇5层",
+  "lat": "31.302196",
+  "lng": "121.512774",
+  "city_id": 1,
+  "city_name": "上海",
+  "main_category_name": "创意菜",
+  "main_category_id": 250,
+  "category_name": "美食",
+  "main_region_id": 854,
+  "shop_power": 40,
+  "shop_group_id": 16966242,
+  "district": 0,
+  "avg_price": 106,
+  "default_review_count": 13719,
+  "total_review_count": 13719,
+  "rating": {
+    "口味": "8.1",
+    "环境": "8.9",
+    "服务": "8.6"
+  },
+  "all_reviews": {
+    "default_numbers": 13719,
+    "all_stars": {
+      "star_1": 216,
+      "star_2": 413,
+      "star_3": 1793,
+      "star_4": 4960,
+      "star_5": 6337
+    }
+  },
+  "default_reviews": {
+    "review_number": 10883,
+    "review_info": [
+      {
+        "user_id": "888233149",
+        "rating": [
+          3,
+          4,
+          3
+        ],
+        "content": "丰衣足食不错，三生三世有点小失望。",
+        "date": "04-16",
+        "photo_number": 0
+      }
+    ]
+  },
+  {
+    "review_number": 311,
+    "review_info": [
+      {
+        "user_id": "615325",
+        "check_in": "15-12-26 18:18",
+        "content": "",
+        "star": 3,
+        "photo_number": 1
+      }
+	]
+  }
 }
 ```
 
@@ -70,8 +76,4 @@ GET http://www.dianping.com/shop/17179979/review_short 签到短评
 
 很可惜，暂时还不能拿到纯checkin的信息，如果有方法，欢迎发issue或者私聊
 
-分布式爬虫架构
-
-```
-待完善
-```
+由于点评严格的反爬虫机制，我们放弃了原先的分布式架构，转而使用[阿布云](https://www.abuyun.com)
