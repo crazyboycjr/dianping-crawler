@@ -51,7 +51,7 @@
       }
     ]
   },
-  {
+  "checkin_reviews": {
     "review_number": 311,
     "review_info": [
       {
@@ -61,7 +61,7 @@
         "star": 3,
         "photo_number": 1
       }
-	]
+    ]
   }
 }
 ```
