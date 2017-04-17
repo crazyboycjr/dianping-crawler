@@ -1,0 +1,50 @@
+{
+	"request1": {
+		"host": "www.dianping.com",
+		"path": "/shop",
+		"port": 80,
+		"headers": {
+			"Connection": "keep-alive",
+			"Pragma": "no-cache",
+			"Cache-Control": "no-cache",
+			"Upgrade-Insecure-Requests": 1,
+			"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36",
+			"Referer": "http://www.dianping.com/search/category",
+			"Accept-Language": "zh-CN,zh;q=0.8"
+		}
+	},
+
+	"request2": {
+		"host": "www.dianping.com",
+		"path": "/ajax/json/shopDynamic/reviewAndStar",
+		"port": 80,
+		"headers": {
+			"Accept": "application/json, text/javascript, */*; q=0.01",
+			"Connection": "keep-alive",
+			"Pragma": "http://www.dianping.com/shop/",
+			"X-Requested-With": "XMLHttpRequest",
+			"Cache-Control": "no-cache",
+			"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36",
+			"Referer": "http://www.dianping.com/search/category",
+			"Accept-Language": "zh-CN,zh;q=0.8"
+		}
+	},
+
+	"request3": {
+		"host": "www.dianping.com",
+		"path": "/shop",
+		"port": 80,
+		"headers": {
+			"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+			"Connection": "keep-alive",
+			"Pragma": "http://www.dianping.com/shop/",
+			"X-Requested-With": "XMLHttpRequest",
+			"Cache-Control": "no-cache",
+			"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36",
+			"Upgrade-Insecure-Requests": 1,
+			"Referer": "http://www.dianping.com/shop/",
+			"Accept-Language": "zh-CN,zh;q=0.8"
+		}
+	}
+
+}
