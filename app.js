@@ -97,29 +97,6 @@ async function work(vis, shop_id) {
 		//console.log(shop_config);
 		LOG(shop_id, 'request 2 finished.');
 
-		/* request 3 */
-		/* 默认点评 review_all */
-		LOG(shop_id, 'sending request 3');
-
-		let config = require('./dcrawl_config.json');
-		let ret = await dh.save_review(shop_id, config.request3, 'default_reviews',
-				'review_all', dh.handle_default_review, shop_config);
-		if (ret === 'blocked')
-			return reject('blocked');
-
-		LOG(shop_id, 'request 3 finished.');
-
-		//console.log(shop_config);
-		/* request 4 review_short */
-		LOG(shop_id, 'sending request 4');
-
-		ret = await dh.save_review(shop_id, config.request3, 'checkin_reviews',
-				'review_short', dh.handle_checkin_review, shop_config);
-		if (ret === 'blocked')
-			return reject('blocked');
-
-		LOG(shop_id, 'request 4 finished.');
-
 		//console.log(JSON.stringify(shop_config));
 		/* alike atom write */
 		if (!vis.has(shop_id)) {
